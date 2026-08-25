@@ -10,33 +10,43 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContasAReceberRoute = ContasAReceberRouteImport.update({
+  id: '/contas-a-receber',
+  path: '/contas-a-receber',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/contas-a-receber'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/contas-a-receber'
+  id: '__root__' | '/' | '/contas-a-receber'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ContasAReceberRoute: typeof ContasAReceberRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +58,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/contas-a-receber': {
+      id: '/contas-a-receber'
+      path: '/contas-a-receber'
+      fullPath: '/contas-a-receber'
+      preLoaderRoute: typeof ContasAReceberRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ContasAReceberRoute: ContasAReceberRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
