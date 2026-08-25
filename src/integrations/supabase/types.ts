@@ -14,7 +14,114 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      financial_movements: {
+        Row: {
+          counterparty: string | null
+          counterparty_document: string | null
+          created_at: string
+          description: string | null
+          document: string | null
+          due_date: string | null
+          id: string
+          issue_date: string | null
+          open_amount: number
+          original_amount: number
+          paid_amount: number
+          payment_date: string | null
+          source: string
+          source_file: string | null
+          status: string
+          type: string
+          unique_key: string
+          updated_at: string
+        }
+        Insert: {
+          counterparty?: string | null
+          counterparty_document?: string | null
+          created_at?: string
+          description?: string | null
+          document?: string | null
+          due_date?: string | null
+          id?: string
+          issue_date?: string | null
+          open_amount?: number
+          original_amount?: number
+          paid_amount?: number
+          payment_date?: string | null
+          source: string
+          source_file?: string | null
+          status: string
+          type: string
+          unique_key: string
+          updated_at?: string
+        }
+        Update: {
+          counterparty?: string | null
+          counterparty_document?: string | null
+          created_at?: string
+          description?: string | null
+          document?: string | null
+          due_date?: string | null
+          id?: string
+          issue_date?: string | null
+          open_amount?: number
+          original_amount?: number
+          paid_amount?: number
+          payment_date?: string | null
+          source?: string
+          source_file?: string | null
+          status?: string
+          type?: string
+          unique_key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      import_batches: {
+        Row: {
+          created_at: string
+          existing_count: number
+          file_name: string | null
+          found_count: number
+          id: string
+          new_count: number
+          open_amount: number
+          paid_amount: number
+          pdf_total: number | null
+          total_amount: number
+          type: string
+          updated_count: number
+        }
+        Insert: {
+          created_at?: string
+          existing_count?: number
+          file_name?: string | null
+          found_count?: number
+          id?: string
+          new_count?: number
+          open_amount?: number
+          paid_amount?: number
+          pdf_total?: number | null
+          total_amount?: number
+          type: string
+          updated_count?: number
+        }
+        Update: {
+          created_at?: string
+          existing_count?: number
+          file_name?: string | null
+          found_count?: number
+          id?: string
+          new_count?: number
+          open_amount?: number
+          paid_amount?: number
+          pdf_total?: number | null
+          total_amount?: number
+          type?: string
+          updated_count?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
