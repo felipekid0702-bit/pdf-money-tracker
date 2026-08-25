@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ContasAPagarRouteImport } from './routes/contas-a-pagar'
 import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
+import { Route as ImportacaoRouteImport } from './routes/importacao'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,44 @@ const ContasAReceberRoute = ContasAReceberRouteImport.update({
   path: '/contas-a-receber',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ImportacaoRoute = ImportacaoRouteImport.update({
+  id: '/importacao',
+  path: '/importacao',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
+  '/importacao': typeof ImportacaoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
+  '/importacao': typeof ImportacaoRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
+  '/importacao': typeof ImportacaoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/contas-a-pagar' | '/contas-a-receber'
+  fullPaths: '/' | '/contas-a-pagar' | '/contas-a-receber' | '/importacao'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/contas-a-pagar' | '/contas-a-receber'
-  id: '__root__' | '/' | '/contas-a-pagar' | '/contas-a-receber'
+  to: '/' | '/contas-a-pagar' | '/contas-a-receber' | '/importacao'
+  id: '__root__' | '/' | '/contas-a-pagar' | '/contas-a-receber' | '/importacao'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ContasAPagarRoute: typeof ContasAPagarRoute
   ContasAReceberRoute: typeof ContasAReceberRoute
+  ImportacaoRoute: typeof ImportacaoRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +92,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ContasAReceberRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/importacao': {
+      id: '/importacao'
+      path: '/importacao'
+      fullPath: '/importacao'
+      preLoaderRoute: typeof ImportacaoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ContasAPagarRoute: ContasAPagarRoute,
   ContasAReceberRoute: ContasAReceberRoute,
+  ImportacaoRoute: ImportacaoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
