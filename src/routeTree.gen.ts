@@ -10,33 +10,81 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnalisesRouteImport } from './routes/analises'
+import { Route as ContasAPagarRouteImport } from './routes/contas-a-pagar'
+import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
+import { Route as ImportacaoRouteImport } from './routes/importacao'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnalisesRoute = AnalisesRouteImport.update({
+  id: '/analises',
+  path: '/analises',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContasAPagarRoute = ContasAPagarRouteImport.update({
+  id: '/contas-a-pagar',
+  path: '/contas-a-pagar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContasAReceberRoute = ContasAReceberRouteImport.update({
+  id: '/contas-a-receber',
+  path: '/contas-a-receber',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ImportacaoRoute = ImportacaoRouteImport.update({
+  id: '/importacao',
+  path: '/importacao',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analises': typeof AnalisesRoute
+  '/contas-a-pagar': typeof ContasAPagarRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
+  '/importacao': typeof ImportacaoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analises': typeof AnalisesRoute
+  '/contas-a-pagar': typeof ContasAPagarRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
+  '/importacao': typeof ImportacaoRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analises': typeof AnalisesRoute
+  '/contas-a-pagar': typeof ContasAPagarRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
+  '/importacao': typeof ImportacaoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    '/' | '/analises' | '/contas-a-pagar' | '/contas-a-receber' | '/importacao'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    '/' | '/analises' | '/contas-a-pagar' | '/contas-a-receber' | '/importacao'
+  id:
+    | '__root__'
+    | '/'
+    | '/analises'
+    | '/contas-a-pagar'
+    | '/contas-a-receber'
+    | '/importacao'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalisesRoute: typeof AnalisesRoute
+  ContasAPagarRoute: typeof ContasAPagarRoute
+  ContasAReceberRoute: typeof ContasAReceberRoute
+  ImportacaoRoute: typeof ImportacaoRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +96,43 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analises': {
+      id: '/analises'
+      path: '/analises'
+      fullPath: '/analises'
+      preLoaderRoute: typeof AnalisesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contas-a-pagar': {
+      id: '/contas-a-pagar'
+      path: '/contas-a-pagar'
+      fullPath: '/contas-a-pagar'
+      preLoaderRoute: typeof ContasAPagarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contas-a-receber': {
+      id: '/contas-a-receber'
+      path: '/contas-a-receber'
+      fullPath: '/contas-a-receber'
+      preLoaderRoute: typeof ContasAReceberRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/importacao': {
+      id: '/importacao'
+      path: '/importacao'
+      fullPath: '/importacao'
+      preLoaderRoute: typeof ImportacaoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalisesRoute: AnalisesRoute,
+  ContasAPagarRoute: ContasAPagarRoute,
+  ContasAReceberRoute: ContasAReceberRoute,
+  ImportacaoRoute: ImportacaoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
