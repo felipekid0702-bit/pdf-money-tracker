@@ -117,8 +117,13 @@ function Importacao() {
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Line label="Registros encontrados" value={String(result.found)} />
+                <Line label="Registros válidos" value={String(result.valid)} />
+                <Line label="Rejeitados" value={String(result.rejected)} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Line label="Novos" value={String(result.created)} />
                 <Line label="Já existentes" value={String(result.existing)} />
+                <Line label="Atualizados" value={String(result.updated)} />
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Line label="Valor total" value={formatBRL(result.total)} />
