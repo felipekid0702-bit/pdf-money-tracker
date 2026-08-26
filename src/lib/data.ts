@@ -46,27 +46,68 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+interface ExistingRow {
+  id: string;
+  unique_key: string;
+  paid_amount: number | string;
+  open_amount: number | string;
+  status: string;
+  payment_date: string | null;
+  issue_date: string | null;
+  description: string | null;
+  counterparty_document: string | null;
+}
+
 export async function importRecords(
   records: ParsedRecord[],
   pdfTotal: number | null,
   fileName: string,
+  found = records.length,
+  rejected = 0,
 ): Promise<ImportSummary> {
   const keys = records.map((r) => r.unique_key);
-  const existingKeys = new Set<string>();
+  const existing = new Map<string, ExistingRow>();
 
   for (const part of chunk(keys, 300)) {
     const { data, error } = await supabase
       .from("financial_movements")
-      .select("unique_key")
+      .select(
+        "id,unique_key,paid_amount,open_amount,status,payment_date,issue_date,description,counterparty_document",
+      )
       .in("unique_key", part);
     if (error) throw error;
-    for (const row of data ?? []) existingKeys.add((row as { unique_key: string }).unique_key);
+    for (const row of (data ?? []) as unknown as ExistingRow[])
+      existing.set(row.unique_key, row);
   }
 
-  const toInsert = records.filter((r) => !existingKeys.has(r.unique_key));
+  const toInsert = records.filter((r) => !existing.has(r.unique_key));
   for (const part of chunk(toInsert, 300)) {
     const { error } = await supabase.from("financial_movements").insert(part);
     if (error) throw error;
+  }
+
+  // atualiza registros já existentes quando o PDF traz informação mais recente
+  let updated = 0;
+  for (const r of records) {
+    const prev = existing.get(r.unique_key);
+    if (!prev) continue;
+    const patch: Record<string, unknown> = {};
+    if (Number(prev.paid_amount) !== r.paid_amount) patch.paid_amount = r.paid_amount;
+    if (Number(prev.open_amount) !== r.open_amount) patch.open_amount = r.open_amount;
+    if (prev.status !== r.status) patch.status = r.status;
+    if (r.payment_date && prev.payment_date !== r.payment_date)
+      patch.payment_date = r.payment_date;
+    if (r.issue_date && !prev.issue_date) patch.issue_date = r.issue_date;
+    if (r.description && !prev.description) patch.description = r.description;
+    if (r.counterparty_document && !prev.counterparty_document)
+      patch.counterparty_document = r.counterparty_document;
+    if (Object.keys(patch).length === 0) continue;
+    const { error } = await supabase
+      .from("financial_movements")
+      .update(patch)
+      .eq("id", prev.id);
+    if (error) throw error;
+    updated++;
   }
 
   const total = records.reduce((s, r) => s + r.original_amount, 0);
@@ -77,10 +118,10 @@ export async function importRecords(
   await supabase.from("import_batches").insert({
     type,
     file_name: fileName,
-    found_count: records.length,
+    found_count: found,
     new_count: toInsert.length,
     existing_count: records.length - toInsert.length,
-    updated_count: 0,
+    updated_count: updated,
     total_amount: total,
     paid_amount: paid,
     open_amount: open,
@@ -88,10 +129,12 @@ export async function importRecords(
   });
 
   return {
-    found: records.length,
+    found,
+    valid: records.length,
+    rejected,
     created: toInsert.length,
     existing: records.length - toInsert.length,
-    updated: 0,
+    updated,
     total,
     paid,
     open,
