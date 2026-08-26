@@ -28,6 +28,8 @@ export async function fetchAllMovements(): Promise<Movement[]> {
 
 export interface ImportSummary {
   found: number;
+  valid: number;
+  rejected: number;
   created: number;
   existing: number;
   updated: number;
