@@ -51,7 +51,13 @@ function Importacao() {
         setError("Nenhum registro foi identificado neste PDF.");
         return;
       }
-      const summary = await importRecords(parsed.records, parsed.pdfTotal, file.name);
+      const summary = await importRecords(
+        parsed.records,
+        parsed.pdfTotal,
+        file.name,
+        parsed.found,
+        parsed.rejected,
+      );
       setResult({
         ...summary,
         type: parsed.type,
