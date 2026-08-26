@@ -23,6 +23,10 @@ export interface ParseResult {
   type: MovementType;
   records: ParsedRecord[];
   pdfTotal: number | null;
+  /** total de linhas candidatas encontradas no PDF */
+  found: number;
+  /** linhas descartadas: duplicadas no próprio arquivo ou inválidas */
+  rejected: number;
 }
 
 interface Item {
