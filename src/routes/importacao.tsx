@@ -32,7 +32,7 @@ export const Route = createFileRoute("/importacao")({
 interface Result extends ImportSummary {
   type: MovementType;
   fileName: string;
-  warning?: string;
+  warning?: string | undefined;
 }
 
 function Importacao() {
