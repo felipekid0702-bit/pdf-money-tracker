@@ -32,7 +32,7 @@ export const Route = createFileRoute("/importacao")({
 interface Result extends ImportSummary {
   type: MovementType;
   fileName: string;
-  warning?: string;
+  warning?: string | undefined;
 }
 
 function Importacao() {
@@ -51,7 +51,13 @@ function Importacao() {
         setError("Nenhum registro foi identificado neste PDF.");
         return;
       }
-      const summary = await importRecords(parsed.records, parsed.pdfTotal, file.name);
+      const summary = await importRecords(
+        parsed.records,
+        parsed.pdfTotal,
+        file.name,
+        parsed.found,
+        parsed.rejected,
+      );
       setResult({
         ...summary,
         type: parsed.type,
@@ -111,8 +117,13 @@ function Importacao() {
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Line label="Registros encontrados" value={String(result.found)} />
+                <Line label="Registros válidos" value={String(result.valid)} />
+                <Line label="Rejeitados" value={String(result.rejected)} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Line label="Novos" value={String(result.created)} />
                 <Line label="Já existentes" value={String(result.existing)} />
+                <Line label="Atualizados" value={String(result.updated)} />
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Line label="Valor total" value={formatBRL(result.total)} />

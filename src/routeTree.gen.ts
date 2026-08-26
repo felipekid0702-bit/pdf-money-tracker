@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnalisesRouteImport } from './routes/analises'
+import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
 import { Route as ContasAPagarRouteImport } from './routes/contas-a-pagar'
 import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
 import { Route as ImportacaoRouteImport } from './routes/importacao'
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const AnalisesRoute = AnalisesRouteImport.update({
   id: '/analises',
   path: '/analises',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConfiguracoesRoute = ConfiguracoesRouteImport.update({
+  id: '/configuracoes',
+  path: '/configuracoes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContasAPagarRoute = ContasAPagarRouteImport.update({
@@ -44,6 +50,7 @@ const ImportacaoRoute = ImportacaoRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analises': typeof AnalisesRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/importacao': typeof ImportacaoRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analises': typeof AnalisesRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/importacao': typeof ImportacaoRoute
@@ -59,6 +67,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analises': typeof AnalisesRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/importacao': typeof ImportacaoRoute
@@ -66,14 +75,25 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/analises' | '/contas-a-pagar' | '/contas-a-receber' | '/importacao'
+    | '/'
+    | '/analises'
+    | '/configuracoes'
+    | '/contas-a-pagar'
+    | '/contas-a-receber'
+    | '/importacao'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/analises' | '/contas-a-pagar' | '/contas-a-receber' | '/importacao'
+    | '/'
+    | '/analises'
+    | '/configuracoes'
+    | '/contas-a-pagar'
+    | '/contas-a-receber'
+    | '/importacao'
   id:
     | '__root__'
     | '/'
     | '/analises'
+    | '/configuracoes'
     | '/contas-a-pagar'
     | '/contas-a-receber'
     | '/importacao'
@@ -82,6 +102,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalisesRoute: typeof AnalisesRoute
+  ConfiguracoesRoute: typeof ConfiguracoesRoute
   ContasAPagarRoute: typeof ContasAPagarRoute
   ContasAReceberRoute: typeof ContasAReceberRoute
   ImportacaoRoute: typeof ImportacaoRoute
@@ -101,6 +122,13 @@ declare module '@tanstack/react-router' {
       path: '/analises'
       fullPath: '/analises'
       preLoaderRoute: typeof AnalisesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/configuracoes': {
+      id: '/configuracoes'
+      path: '/configuracoes'
+      fullPath: '/configuracoes'
+      preLoaderRoute: typeof ConfiguracoesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contas-a-pagar': {
@@ -130,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalisesRoute: AnalisesRoute,
+  ConfiguracoesRoute: ConfiguracoesRoute,
   ContasAPagarRoute: ContasAPagarRoute,
   ContasAReceberRoute: ContasAReceberRoute,
   ImportacaoRoute: ImportacaoRoute,
