@@ -251,13 +251,20 @@ export async function parseBlingPdf(file: File): Promise<ParseResult> {
     ].join("|");
   }
 
-  // drop duplicates inside the same file
+  // drop duplicates inside the same file and rows without value/vencimento
   const seen = new Set<string>();
   const unique = records.filter((r) => {
+    if (!r.due_date || !(r.original_amount > 0)) return false;
     if (seen.has(r.unique_key)) return false;
     seen.add(r.unique_key);
     return true;
   });
 
-  return { type, records: unique, pdfTotal };
+  return {
+    type,
+    records: unique,
+    pdfTotal,
+    found: records.length,
+    rejected: records.length - unique.length,
+  };
 }
