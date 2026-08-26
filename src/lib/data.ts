@@ -91,15 +91,23 @@ export async function importRecords(
   for (const r of records) {
     const prev = existing.get(r.unique_key);
     if (!prev) continue;
-    const patch: Record<string, unknown> = {};
-    if (Number(prev.paid_amount) !== r.paid_amount) patch.paid_amount = r.paid_amount;
-    if (Number(prev.open_amount) !== r.open_amount) patch.open_amount = r.open_amount;
-    if (prev.status !== r.status) patch.status = r.status;
-    if (r.payment_date && prev.payment_date !== r.payment_date)
+    const patch: {
+      paid_amount?: number;
+      open_amount?: number;
+      status?: string;
+      payment_date?: string;
+      issue_date?: string;
+      description?: string;
+      counterparty_document?: string;
+    } = {};
+    if (Number(prev["paid_amount"]) !== r.paid_amount) patch.paid_amount = r.paid_amount;
+    if (Number(prev["open_amount"]) !== r.open_amount) patch.open_amount = r.open_amount;
+    if (prev["status"] !== r.status) patch.status = r.status;
+    if (r.payment_date && prev["payment_date"] !== r.payment_date)
       patch.payment_date = r.payment_date;
-    if (r.issue_date && !prev.issue_date) patch.issue_date = r.issue_date;
-    if (r.description && !prev.description) patch.description = r.description;
-    if (r.counterparty_document && !prev.counterparty_document)
+    if (r.issue_date && !prev["issue_date"]) patch.issue_date = r.issue_date;
+    if (r.description && !prev["description"]) patch.description = r.description;
+    if (r.counterparty_document && !prev["counterparty_document"])
       patch.counterparty_document = r.counterparty_document;
     if (Object.keys(patch).length === 0) continue;
     const { error } = await supabase
