@@ -7,14 +7,17 @@ import {
   Upload,
   Settings,
   Menu,
+  CalendarDays,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import logo from "@/assets/fp-logo.png.asset.json";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/contas-a-receber", label: "Contas a Receber", icon: ArrowDownCircle },
   { to: "/contas-a-pagar", label: "Contas a Pagar", icon: ArrowUpCircle },
+  { to: "/calendario", label: "Calendário", icon: CalendarDays },
   { to: "/analises", label: "Análises", icon: BarChart3 },
   { to: "/importacao", label: "Importação", icon: Upload },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
