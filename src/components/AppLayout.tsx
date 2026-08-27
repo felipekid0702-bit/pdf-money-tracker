@@ -97,12 +97,19 @@ export function AppLayout({
 
 function Brand() {
   return (
-    <div className="border-b border-sidebar-border px-5 py-5">
-      <div className="text-base font-semibold tracking-tight text-sidebar-accent-foreground">
-        FP Financeiro
-      </div>
-      <div className="mt-0.5 text-[11px] leading-tight text-sidebar-foreground/60">
-        FP SOLUÇÃO EM ALTURA LTDA
+    <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
+      <img
+        src={logo.url}
+        alt="FP Solução em Altura"
+        className="size-11 shrink-0 rounded-md bg-card object-contain p-1"
+      />
+      <div className="min-w-0">
+        <div className="text-base font-semibold tracking-tight text-sidebar-accent-foreground">
+          FP Financeiro
+        </div>
+        <div className="mt-0.5 truncate text-[11px] leading-tight text-sidebar-foreground/60">
+          FP SOLUÇÃO EM ALTURA LTDA
+        </div>
       </div>
     </div>
   );
