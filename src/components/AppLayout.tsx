@@ -7,14 +7,17 @@ import {
   Upload,
   Settings,
   Menu,
+  CalendarDays,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import logo from "@/assets/fp-logo.png.asset.json";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/contas-a-receber", label: "Contas a Receber", icon: ArrowDownCircle },
   { to: "/contas-a-pagar", label: "Contas a Pagar", icon: ArrowUpCircle },
+  { to: "/calendario", label: "Calendário", icon: CalendarDays },
   { to: "/analises", label: "Análises", icon: BarChart3 },
   { to: "/importacao", label: "Importação", icon: Upload },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
@@ -97,12 +100,19 @@ export function AppLayout({
 
 function Brand() {
   return (
-    <div className="border-b border-sidebar-border px-5 py-5">
-      <div className="text-base font-semibold tracking-tight text-sidebar-accent-foreground">
-        FP Financeiro
-      </div>
-      <div className="mt-0.5 text-[11px] leading-tight text-sidebar-foreground/60">
-        FP SOLUÇÃO EM ALTURA LTDA
+    <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
+      <img
+        src={logo.url}
+        alt="FP Solução em Altura"
+        className="size-11 shrink-0 rounded-md bg-card object-contain p-1"
+      />
+      <div className="min-w-0">
+        <div className="text-base font-semibold tracking-tight text-sidebar-accent-foreground">
+          FP Financeiro
+        </div>
+        <div className="mt-0.5 truncate text-[11px] leading-tight text-sidebar-foreground/60">
+          FP SOLUÇÃO EM ALTURA LTDA
+        </div>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnalisesRouteImport } from './routes/analises'
+import { Route as CalendarioRouteImport } from './routes/calendario'
 import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
 import { Route as ContasAPagarRouteImport } from './routes/contas-a-pagar'
 import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const AnalisesRoute = AnalisesRouteImport.update({
   id: '/analises',
   path: '/analises',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CalendarioRoute = CalendarioRouteImport.update({
+  id: '/calendario',
+  path: '/calendario',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConfiguracoesRoute = ConfiguracoesRouteImport.update({
@@ -50,6 +56,7 @@ const ImportacaoRoute = ImportacaoRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analises': typeof AnalisesRoute
+  '/calendario': typeof CalendarioRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analises': typeof AnalisesRoute
+  '/calendario': typeof CalendarioRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analises': typeof AnalisesRoute
+  '/calendario': typeof CalendarioRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
@@ -77,6 +86,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/analises'
+    | '/calendario'
     | '/configuracoes'
     | '/contas-a-pagar'
     | '/contas-a-receber'
@@ -85,6 +95,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/analises'
+    | '/calendario'
     | '/configuracoes'
     | '/contas-a-pagar'
     | '/contas-a-receber'
@@ -93,6 +104,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/analises'
+    | '/calendario'
     | '/configuracoes'
     | '/contas-a-pagar'
     | '/contas-a-receber'
@@ -102,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalisesRoute: typeof AnalisesRoute
+  CalendarioRoute: typeof CalendarioRoute
   ConfiguracoesRoute: typeof ConfiguracoesRoute
   ContasAPagarRoute: typeof ContasAPagarRoute
   ContasAReceberRoute: typeof ContasAReceberRoute
@@ -122,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/analises'
       fullPath: '/analises'
       preLoaderRoute: typeof AnalisesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/calendario': {
+      id: '/calendario'
+      path: '/calendario'
+      fullPath: '/calendario'
+      preLoaderRoute: typeof CalendarioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/configuracoes': {
@@ -158,6 +178,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalisesRoute: AnalisesRoute,
+  CalendarioRoute: CalendarioRoute,
   ConfiguracoesRoute: ConfiguracoesRoute,
   ContasAPagarRoute: ContasAPagarRoute,
   ContasAReceberRoute: ContasAReceberRoute,
