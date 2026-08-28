@@ -11,6 +11,9 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { PeriodProvider } from "../lib/period";
+import { ImportProvider } from "../lib/import-context";
+import { ImportStatusBar } from "../components/ImportStatusBar";
+import { useRealtimeMovements } from "../hooks/useRealtimeMovements";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
@@ -122,15 +125,25 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+function AppShell() {
+  useRealtimeMovements();
+  return (
+    <PeriodProvider>
+      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <Outlet />
+      <ImportStatusBar />
+    </PeriodProvider>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      <PeriodProvider>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
-      </PeriodProvider>
+      <ImportProvider>
+        <AppShell />
+      </ImportProvider>
     </QueryClientProvider>
   );
 }

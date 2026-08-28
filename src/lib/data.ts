@@ -46,6 +46,24 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]!, i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 interface ExistingRow {
   id: string;
   unique_key: string;
@@ -55,7 +73,14 @@ interface ExistingRow {
   payment_date: string | null;
   issue_date: string | null;
   description: string | null;
+  counterparty: string | null;
   counterparty_document: string | null;
+  document: string | null;
+  source_file: string | null;
+  type: string;
+  source: string;
+  original_amount: number | string;
+  due_date: string | null;
 }
 
 export async function importRecords(
@@ -64,59 +89,87 @@ export async function importRecords(
   fileName: string,
   found = records.length,
   rejected = 0,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<ImportSummary> {
   const keys = records.map((r) => r.unique_key);
   const existing = new Map<string, ExistingRow>();
 
-  for (const part of chunk(keys, 300)) {
+  // 1. lookup das chaves existentes (paralelo, em lotes)
+  const keyChunks = chunk(keys, 400);
+  let lookupDone = 0;
+  await mapLimit(keyChunks, 4, async (part) => {
     const { data, error } = await supabase
       .from("financial_movements")
-      .select(
-        "id,unique_key,paid_amount,open_amount,status,payment_date,issue_date,description,counterparty_document",
-      )
+      .select("*")
       .in("unique_key", part);
     if (error) throw error;
     for (const row of (data ?? []) as unknown as ExistingRow[])
       existing.set(row.unique_key, row);
-  }
+    lookupDone += part.length;
+    onProgress?.(Math.round(lookupDone * 0.3), records.length);
+  });
 
-  const toInsert = records.filter((r) => !existing.has(r.unique_key));
-  for (const part of chunk(toInsert, 300)) {
-    const { error } = await supabase.from("financial_movements").insert(part);
-    if (error) throw error;
-  }
+  // 2. separa novos e atualizações reais
+  const toInsert: ParsedRecord[] = [];
+  const toUpdate: Array<Record<string, unknown>> = [];
 
-  // atualiza registros já existentes quando o PDF traz informação mais recente
-  let updated = 0;
   for (const r of records) {
     const prev = existing.get(r.unique_key);
-    if (!prev) continue;
-    const patch: {
-      paid_amount?: number;
-      open_amount?: number;
-      status?: string;
-      payment_date?: string;
-      issue_date?: string;
-      description?: string;
-      counterparty_document?: string;
-    } = {};
-    if (Number(prev["paid_amount"]) !== r.paid_amount) patch.paid_amount = r.paid_amount;
-    if (Number(prev["open_amount"]) !== r.open_amount) patch.open_amount = r.open_amount;
-    if (prev["status"] !== r.status) patch.status = r.status;
-    if (r.payment_date && prev["payment_date"] !== r.payment_date)
-      patch.payment_date = r.payment_date;
-    if (r.issue_date && !prev["issue_date"]) patch.issue_date = r.issue_date;
-    if (r.description && !prev["description"]) patch.description = r.description;
-    if (r.counterparty_document && !prev["counterparty_document"])
-      patch.counterparty_document = r.counterparty_document;
+    if (!prev) {
+      toInsert.push(r);
+      continue;
+    }
+    const patch: Record<string, unknown> = {};
+    if (Number(prev.paid_amount) !== r.paid_amount) patch["paid_amount"] = r.paid_amount;
+    if (Number(prev.open_amount) !== r.open_amount) patch["open_amount"] = r.open_amount;
+    if (prev.status !== r.status) patch["status"] = r.status;
+    if (r.payment_date && prev.payment_date !== r.payment_date)
+      patch["payment_date"] = r.payment_date;
+    if (r.issue_date && !prev.issue_date) patch["issue_date"] = r.issue_date;
+    if (r.description && !prev.description) patch["description"] = r.description;
+    if (r.counterparty && !prev.counterparty) patch["counterparty"] = r.counterparty;
+    if (r.counterparty_document && !prev.counterparty_document)
+      patch["counterparty_document"] = r.counterparty_document;
     if (Object.keys(patch).length === 0) continue;
+    // upsert exige a linha completa: mescla o existente com o patch
+    toUpdate.push({
+      id: prev.id,
+      type: prev.type,
+      document: prev.document,
+      counterparty: prev.counterparty,
+      counterparty_document: prev.counterparty_document,
+      description: prev.description,
+      issue_date: prev.issue_date,
+      due_date: prev.due_date,
+      payment_date: prev.payment_date,
+      original_amount: Number(prev.original_amount),
+      paid_amount: Number(prev.paid_amount),
+      open_amount: Number(prev.open_amount),
+      status: prev.status,
+      source: prev.source,
+      source_file: prev.source_file,
+      unique_key: prev.unique_key,
+      ...patch,
+    });
+  }
+
+  // 3. grava em lotes (upsert por unique_key: nunca duplica)
+  const batches: Array<Array<Record<string, unknown>>> = [
+    ...chunk(toInsert as unknown as Array<Record<string, unknown>>, 400),
+    ...chunk(toUpdate, 400),
+  ];
+  let written = 0;
+  await mapLimit(batches, 3, async (batch) => {
     const { error } = await supabase
       .from("financial_movements")
-      .update(patch)
-      .eq("id", prev.id);
+      .upsert(batch as never, { onConflict: "unique_key" });
     if (error) throw error;
-    updated++;
-  }
+    written += batch.length;
+    onProgress?.(
+      Math.round(records.length * 0.3 + written * 0.7),
+      records.length,
+    );
+  });
 
   const total = records.reduce((s, r) => s + r.original_amount, 0);
   const paid = records.reduce((s, r) => s + r.paid_amount, 0);
@@ -129,12 +182,14 @@ export async function importRecords(
     found_count: found,
     new_count: toInsert.length,
     existing_count: records.length - toInsert.length,
-    updated_count: updated,
+    updated_count: toUpdate.length,
     total_amount: total,
     paid_amount: paid,
     open_amount: open,
     pdf_total: pdfTotal,
   });
+
+  onProgress?.(records.length, records.length);
 
   return {
     found,
@@ -142,13 +197,12 @@ export async function importRecords(
     rejected,
     created: toInsert.length,
     existing: records.length - toInsert.length,
-    updated,
+    updated: toUpdate.length,
     total,
     paid,
     open,
     pdfTotal,
-    divergence:
-      pdfTotal === null ? null : Number((pdfTotal - total).toFixed(2)),
+    divergence: pdfTotal === null ? null : Number((pdfTotal - total).toFixed(2)),
   };
 }
 
