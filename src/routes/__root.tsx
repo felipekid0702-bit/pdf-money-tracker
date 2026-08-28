@@ -122,15 +122,25 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+function AppShell() {
+  useRealtimeMovements();
+  return (
+    <PeriodProvider>
+      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <Outlet />
+      <ImportStatusBar />
+    </PeriodProvider>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      <PeriodProvider>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
-      </PeriodProvider>
+      <ImportProvider>
+        <AppShell />
+      </ImportProvider>
     </QueryClientProvider>
   );
 }
