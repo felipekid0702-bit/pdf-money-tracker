@@ -79,7 +79,10 @@ function mapStatus(
   return { status: "EM_ABERTO", paidFull: false };
 }
 
-export async function parseBlingPdf(file: File): Promise<ParseResult> {
+export async function parseBlingPdf(
+  file: File,
+  onProgress?: (page: number, pages: number) => void,
+): Promise<ParseResult> {
   const pdfjs = await import("pdfjs-dist");
   const workerUrl = (
     await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
@@ -87,7 +90,11 @@ export async function parseBlingPdf(file: File): Promise<ParseResult> {
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
   const buffer = await file.arrayBuffer();
-  const doc = await pdfjs.getDocument({ data: buffer }).promise;
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    disableFontFace: true,
+    isEvalSupported: false,
+  }).promise;
 
   let kind: MovementType | null = null;
   let histX: number | null = null;
@@ -95,6 +102,7 @@ export async function parseBlingPdf(file: File): Promise<ParseResult> {
   const records: ParsedRecord[] = [];
 
   for (let p = 1; p <= doc.numPages; p++) {
+    onProgress?.(p, doc.numPages);
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
     const items: Item[] = [];
