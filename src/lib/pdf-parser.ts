@@ -244,7 +244,11 @@ export async function parseBlingPdf(
     }
 
     for (const r of pageRows) records.push(r.rec);
+    page.cleanup();
+    if (p % 10 === 0) await new Promise((r) => setTimeout(r, 0));
   }
+  await doc.destroy();
+
 
   const type: MovementType = kind ?? "RECEITA";
   for (const r of records) {
