@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, FileUp, Loader2, Trash2 } from "lucide-rea
 import { AppLayout } from "@/components/AppLayout";
 import { SectionCard } from "@/components/StatCard";
 import { useImportQueue, type ImportJob } from "@/lib/import-context";
-import { formatBRL, type MovementType } from "@/lib/finance";
+import { formatBRL } from "@/lib/finance";
 
 export const Route = createFileRoute("/importacao")({
   head: () => ({
@@ -204,5 +204,3 @@ function UploadBox({
     </div>
   );
 }
-
-export type { MovementType };
