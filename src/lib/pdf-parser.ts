@@ -90,11 +90,12 @@ export async function parseBlingPdf(
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
   const buffer = await file.arrayBuffer();
-  const doc = await pdfjs.getDocument({
+  const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     disableFontFace: true,
     isEvalSupported: false,
-  }).promise;
+  });
+  const doc = await loadingTask.promise;
 
   let kind: MovementType | null = null;
   let histX: number | null = null;
@@ -247,7 +248,7 @@ export async function parseBlingPdf(
     page.cleanup();
     if (p % 10 === 0) await new Promise((r) => setTimeout(r, 0));
   }
-  await doc.destroy();
+  await loadingTask.destroy();
 
 
   const type: MovementType = kind ?? "RECEITA";
