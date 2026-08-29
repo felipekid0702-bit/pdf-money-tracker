@@ -105,11 +105,14 @@ export function ImportProvider({ children }: { children: ReactNode }) {
           });
           await qc.invalidateQueries({ queryKey: ["movements"] });
         } catch (e) {
-          patch(id, {
-            phase: "erro",
-            progress: 1,
-            error: e instanceof Error ? e.message : "Falha ao processar o PDF.",
-          });
+          const msg =
+            e instanceof Error
+              ? e.message
+              : typeof e === "object" && e && "message" in e
+                ? String((e as { message: unknown }).message)
+                : "Falha ao processar o PDF.";
+          console.error("[importacao]", file.name, e);
+          patch(id, { phase: "erro", progress: 1, error: msg });
         }
       }
     } finally {
