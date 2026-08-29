@@ -91,23 +91,25 @@ export async function importRecords(
   rejected = 0,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ImportSummary> {
-  const keys = records.map((r) => r.unique_key);
+  const recordType = records[0]?.type ?? "RECEITA";
+  const wanted = new Set(records.map((r) => r.unique_key));
   const existing = new Map<string, ExistingRow>();
 
-  // 1. lookup das chaves existentes (paralelo, em lotes)
-  const keyChunks = chunk(keys, 400);
-  let lookupDone = 0;
-  await mapLimit(keyChunks, 4, async (part) => {
+  // 1. carrega as chaves já gravadas deste tipo (paginado — evita URLs gigantes)
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from("financial_movements")
       .select("*")
-      .in("unique_key", part);
+      .eq("type", recordType)
+      .range(from, from + pageSize - 1);
     if (error) throw error;
-    for (const row of (data ?? []) as unknown as ExistingRow[])
-      existing.set(row.unique_key, row);
-    lookupDone += part.length;
-    onProgress?.(Math.round(lookupDone * 0.3), records.length);
-  });
+    const rows = (data ?? []) as unknown as ExistingRow[];
+    for (const row of rows)
+      if (wanted.has(row.unique_key)) existing.set(row.unique_key, row);
+    onProgress?.(Math.round(records.length * 0.15), records.length);
+    if (rows.length < pageSize) break;
+  }
 
   // 2. separa novos e atualizações reais
   const toInsert: ParsedRecord[] = [];
