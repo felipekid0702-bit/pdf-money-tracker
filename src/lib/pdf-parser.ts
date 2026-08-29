@@ -49,7 +49,7 @@ function toNumber(br: string): number {
 }
 
 const HEADER_TOKEN_RE =
-  /^(Cliente|Fornecedor|Forma(\s+de)?|de\s+pagamento|pagamento|Nro\.?|documento|Hist[oó]rico|Vencimento|Situa[cç][aã]o|valor|Emiss[aã]o|Total|P[aá]gina|Conta|receber\/pagar)$/i;
+  /^(Cliente|Fornecedor|Forma(\s+de)?|de\s+pagamento|pagamento|Nro\.?|documento|Hist[oó]rico|Vencimento|Situa[cç][aã]o|valor|Emiss[aã]o|Total|P[aá]gina|Conta(\s+a)?(\s+(receber|pagar))?|a\s+(receber|pagar)|receber\/pagar)$/i;
 
 /** tokens de cabeçalho/rodapé que nunca fazem parte de um registro real */
 function isNoiseToken(t: string): boolean {
