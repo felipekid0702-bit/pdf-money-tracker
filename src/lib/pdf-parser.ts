@@ -48,6 +48,14 @@ function toNumber(br: string): number {
   return Number(br.replace(/\./g, "").replace(",", ".")) || 0;
 }
 
+const HEADER_TOKEN_RE =
+  /^(Cliente|Fornecedor|Forma|de|pagamento|Nro\.?|documento|Hist[oó]rico|Vencimento|Situa[cç][aã]o|valor|Valor|Emiss[aã]o|Data|Total|P[aá]gina|Conta|a|receber\/pagar|receber|pagar)$/i;
+
+/** tokens de cabeçalho/rodapé que nunca fazem parte de um registro real */
+function isNoiseToken(t: string): boolean {
+  return HEADER_TOKEN_RE.test(t.trim());
+}
+
 function normalizeKeyPart(v: string | null): string {
   return (v ?? "").toUpperCase().replace(/\s+/g, " ").trim();
 }
@@ -200,7 +208,7 @@ export async function parseBlingPdf(
       line.forEach((it, i) => {
         if (i >= dueIdx) return;
         if (i === docTokenIndex) return;
-        if (/^(Conta a|Conta|receber\/pagar)$/i.test(it.str)) return;
+        if (isNoiseToken(it.str)) return;
         if (it.x < boundary - 5) nameParts.push(it.str);
         else descParts.push(it.str);
       });
@@ -236,7 +244,7 @@ export async function parseBlingPdf(
       for (const r of pageRows)
         if (Math.abs(r.y - y) < Math.abs(best.y - y)) best = r;
       for (const it of line) {
-        if (/^(Conta a|Conta|receber\/pagar)$/i.test(it.str)) continue;
+        if (isNoiseToken(it.str)) continue;
         if (it.x < boundary - 5)
           best.rec.counterparty = `${best.rec.counterparty ?? ""} ${it.str}`.trim();
         else
