@@ -101,7 +101,6 @@ export async function parseBlingPdf(
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     disableFontFace: true,
-    isEvalSupported: false,
   });
   const doc = await loadingTask.promise;
 
