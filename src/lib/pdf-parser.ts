@@ -48,6 +48,14 @@ function toNumber(br: string): number {
   return Number(br.replace(/\./g, "").replace(",", ".")) || 0;
 }
 
+const HEADER_TOKEN_RE =
+  /^(Cliente|Fornecedor|Forma(\s+de)?|de\s+pagamento|pagamento|Nro\.?|documento|Hist[oó]rico|Vencimento|Situa[cç][aã]o|valor|Emiss[aã]o|Total|P[aá]gina|Conta(\s+a)?(\s+(receber|pagar))?|a\s+(receber|pagar)|receber\/pagar)$/i;
+
+/** tokens de cabeçalho/rodapé que nunca fazem parte de um registro real */
+function isNoiseToken(t: string): boolean {
+  return HEADER_TOKEN_RE.test(t.trim());
+}
+
 function normalizeKeyPart(v: string | null): string {
   return (v ?? "").toUpperCase().replace(/\s+/g, " ").trim();
 }
@@ -90,11 +98,11 @@ export async function parseBlingPdf(
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
   const buffer = await file.arrayBuffer();
-  const doc = await pdfjs.getDocument({
+  const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     disableFontFace: true,
-    isEvalSupported: false,
-  }).promise;
+  });
+  const doc = await loadingTask.promise;
 
   let kind: MovementType | null = null;
   let histX: number | null = null;
@@ -199,7 +207,7 @@ export async function parseBlingPdf(
       line.forEach((it, i) => {
         if (i >= dueIdx) return;
         if (i === docTokenIndex) return;
-        if (/^(Conta a|Conta|receber\/pagar)$/i.test(it.str)) return;
+        if (isNoiseToken(it.str)) return;
         if (it.x < boundary - 5) nameParts.push(it.str);
         else descParts.push(it.str);
       });
@@ -235,7 +243,7 @@ export async function parseBlingPdf(
       for (const r of pageRows)
         if (Math.abs(r.y - y) < Math.abs(best.y - y)) best = r;
       for (const it of line) {
-        if (/^(Conta a|Conta|receber\/pagar)$/i.test(it.str)) continue;
+        if (isNoiseToken(it.str)) continue;
         if (it.x < boundary - 5)
           best.rec.counterparty = `${best.rec.counterparty ?? ""} ${it.str}`.trim();
         else
@@ -247,7 +255,7 @@ export async function parseBlingPdf(
     page.cleanup();
     if (p % 10 === 0) await new Promise((r) => setTimeout(r, 0));
   }
-  await doc.destroy();
+  await loadingTask.destroy();
 
 
   const type: MovementType = kind ?? "RECEITA";
