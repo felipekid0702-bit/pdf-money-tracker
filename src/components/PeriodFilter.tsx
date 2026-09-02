@@ -1,45 +1,73 @@
-import { PERIOD_OPTIONS, usePeriod } from "@/lib/period";
-import { cn } from "@/lib/utils";
+import {
+  FORECAST_OPTIONS,
+  HISTORY_OPTIONS,
+  isForecastPeriod,
+  usePeriod,
+  type PeriodId,
+} from "@/lib/period";
+import { formatDate } from "@/lib/finance";
 
 export function PeriodFilter() {
-  const { period, setPeriod, customFrom, customTo, setCustomFrom, setCustomTo } =
-    usePeriod();
+  const {
+    period,
+    setPeriod,
+    customFrom,
+    customTo,
+    setCustomFrom,
+    setCustomTo,
+    range,
+  } = usePeriod();
+
+  const isCustom = period === "custom" || period === "custom_forecast";
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="flex flex-wrap gap-1 rounded-md border border-border bg-card p-1">
-        {PERIOD_OPTIONS.map((o) => (
-          <button
-            key={o.id}
-            onClick={() => setPeriod(o.id)}
-            className={cn(
-              "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-              period === o.id
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted",
-            )}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-      {period === "custom" && (
+      <select
+        value={period}
+        onChange={(e) => setPeriod(e.target.value as PeriodId)}
+        className="rounded-md border border-input bg-card px-3 py-2 text-sm"
+        aria-label="Período"
+      >
+        <optgroup label="Histórico">
+          {HISTORY_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label="Projeção">
+          {FORECAST_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </optgroup>
+      </select>
+
+      {isCustom && (
         <div className="flex items-center gap-1">
           <input
             type="date"
             value={customFrom}
             onChange={(e) => setCustomFrom(e.target.value)}
-            className="rounded-md border border-input bg-card px-2 py-1 text-xs"
+            className="rounded-md border border-input bg-card px-2 py-1.5 text-xs"
           />
           <span className="text-xs text-muted-foreground">até</span>
           <input
             type="date"
             value={customTo}
             onChange={(e) => setCustomTo(e.target.value)}
-            className="rounded-md border border-input bg-card px-2 py-1 text-xs"
+            className="rounded-md border border-input bg-card px-2 py-1.5 text-xs"
           />
         </div>
       )}
+
+      <span className="text-xs text-muted-foreground">
+        {range.from || range.to
+          ? `${formatDate(range.from) || "…"} – ${formatDate(range.to) || "…"}`
+          : "Todo o período"}
+        {isForecastPeriod(period) && " · projeção"}
+      </span>
     </div>
   );
 }
