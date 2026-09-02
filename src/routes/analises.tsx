@@ -5,17 +5,18 @@ import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState, SectionCard, StatCard } from "@/components/StatCard";
 import { useMovements } from "@/hooks/useMovements";
 import { usePeriod } from "@/lib/period";
+import { formatBRL, formatPercent, monthKey, monthLabel, type Movement } from "@/lib/finance";
 import {
-  formatBRL,
-  formatPercent,
-  monthKey,
-  monthLabel,
-  todayISO,
-  totalize,
-  type Movement,
-  type MovementType,
-} from "@/lib/finance";
-import { forecastWindows } from "./index";
+  aging,
+  financialPressure,
+  periodKpis,
+  projections,
+  rankParties,
+  topShare,
+  type AgingBucket,
+  type PartyRow,
+} from "@/lib/analytics";
+import { FlowTable } from "./index";
 
 export const Route = createFileRoute("/analises")({
   head: () => ({
@@ -24,12 +25,12 @@ export const Route = createFileRoute("/analises")({
       {
         name: "description",
         content:
-          "Rankings de clientes e fornecedores, indicadores financeiros e previsão de fluxo da FP Solução em Altura.",
+          "Rankings de clientes e fornecedores, aging, concentração e previsão determinística de fluxo da FP Solução em Altura.",
       },
       { property: "og:title", content: "Análises financeiras | FP Financeiro" },
       {
         property: "og:description",
-        content: "Clientes, fornecedores, indicadores e previsões por período.",
+        content: "Clientes, fornecedores, aging, concentração e projeções por período.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -38,41 +39,23 @@ export const Route = createFileRoute("/analises")({
   component: Analises,
 });
 
-interface PartyRow {
-  name: string;
-  total: number;
-  settled: number;
-  open: number;
-  overdue: number;
-  count: number;
-}
-
-function rankParties(rows: Movement[], type: MovementType): PartyRow[] {
-  const today = todayISO();
-  const map = new Map<string, PartyRow>();
-  for (const m of rows) {
-    if (m.type !== type) continue;
-    const name = m.counterparty?.trim() || "(sem identificação)";
-    const cur =
-      map.get(name) ?? { name, total: 0, settled: 0, open: 0, overdue: 0, count: 0 };
-    cur.total += m.original_amount;
-    cur.settled += m.paid_amount;
-    cur.open += m.open_amount;
-    if (m.open_amount > 0 && m.due_date && m.due_date < today)
-      cur.overdue += m.open_amount;
-    cur.count += 1;
-    map.set(name, cur);
-  }
-  return Array.from(map.values()).sort((a, b) => b.total - a.total);
-}
-
 function avgDays(rows: Movement[]): number | null {
   const vals: number[] = [];
   for (const m of rows) {
     if (!m.issue_date || !m.due_date) continue;
-    const diff =
-      (Date.parse(m.due_date) - Date.parse(m.issue_date)) / 86_400_000;
+    const diff = (Date.parse(m.due_date) - Date.parse(m.issue_date)) / 86_400_000;
     if (isFinite(diff)) vals.push(diff);
+  }
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function avgSettleDays(rows: Movement[]): number | null {
+  const vals: number[] = [];
+  for (const m of rows) {
+    if (!m.payment_date || !m.issue_date) continue;
+    const diff = (Date.parse(m.payment_date) - Date.parse(m.issue_date)) / 86_400_000;
+    if (isFinite(diff) && diff >= 0) vals.push(diff);
   }
   if (!vals.length) return null;
   return vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -80,25 +63,30 @@ function avgDays(rows: Movement[]): number | null {
 
 function Analises() {
   const { data, isLoading } = useMovements();
-  const { filter } = usePeriod();
-  const all = data ?? [];
+  const { filter, label } = usePeriod();
+  const all = useMemo(() => data ?? [], [data]);
   const rows = useMemo(() => filter(all), [all, filter]);
 
-  const receitas = rows.filter((m) => m.type === "RECEITA");
-  const despesas = rows.filter((m) => m.type === "DESPESA");
-  const tr = totalize(receitas);
-  const td = totalize(despesas);
+  const receitas = useMemo(() => rows.filter((m) => m.type === "RECEITA"), [rows]);
+  const despesas = useMemo(() => rows.filter((m) => m.type === "DESPESA"), [rows]);
+  const k = useMemo(() => periodKpis(rows), [rows]);
 
   const clientes = useMemo(() => rankParties(rows, "RECEITA"), [rows]);
   const fornecedores = useMemo(() => rankParties(rows, "DESPESA"), [rows]);
-  const forecast = useMemo(() => forecastWindows(all), [all]);
+  const forecast = useMemo(() => projections(all), [all]);
+  const pressure = useMemo(() => financialPressure(all, undefined, 15), [all]);
+
+  const agingReceberFut = useMemo(() => aging(all, "RECEITA", "future"), [all]);
+  const agingReceberVenc = useMemo(() => aging(all, "RECEITA", "past"), [all]);
+  const agingPagarFut = useMemo(() => aging(all, "DESPESA", "future"), [all]);
+  const agingPagarVenc = useMemo(() => aging(all, "DESPESA", "past"), [all]);
 
   const monthlyRevenue = useMemo(() => {
     const map = new Map<string, number>();
     for (const m of receitas) {
-      const k = monthKey(m.due_date);
-      if (!k) continue;
-      map.set(k, (map.get(k) ?? 0) + m.original_amount);
+      const key = monthKey(m.due_date);
+      if (!key) continue;
+      map.set(key, (map.get(key) ?? 0) + (Number(m.original_amount) || 0));
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [receitas]);
@@ -111,22 +99,15 @@ function Analises() {
     return { value: (last[1] - prev[1]) / prev[1], from: prev[0], to: last[0] };
   }, [monthlyRevenue]);
 
-  const top5Share =
-    tr.total > 0
-      ? clientes.slice(0, 5).reduce((s, c) => s + c.total, 0) / tr.total
-      : null;
-  const top5ShareExp =
-    td.total > 0
-      ? fornecedores.slice(0, 5).reduce((s, c) => s + c.total, 0) / td.total
-      : null;
-
   const prazoReceb = avgDays(receitas);
   const prazoPag = avgDays(despesas);
+  const dso = avgSettleDays(receitas);
+  const dpo = avgSettleDays(despesas);
 
   return (
     <AppLayout
       title="Análises"
-      subtitle="Clientes, fornecedores, indicadores e previsões"
+      subtitle={`Clientes, fornecedores, aging e projeções · ${label}`}
       actions={<PeriodFilter />}
     >
       {isLoading ? (
@@ -136,60 +117,49 @@ function Analises() {
       ) : (
         <div className="space-y-6">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="Ticket médio (receitas)"
-              value={tr.count ? formatBRL(tr.total / tr.count) : "—"}
-            />
-            <StatCard
-              label="Ticket médio (despesas)"
-              value={td.count ? formatBRL(td.total / td.count) : "—"}
-            />
+            <StatCard label="Ticket médio (receitas)" value={k.receita.count ? formatBRL(k.receita.avgTicket) : "—"} />
+            <StatCard label="Ticket médio (despesas)" value={k.despesa.count ? formatBRL(k.despesa.avgTicket) : "—"} />
+            <StatCard label="Maior recebimento" value={formatBRL(k.receita.maxSettled)} tone="success" />
+            <StatCard label="Maior título em aberto" value={formatBRL(k.receita.maxOpen)} tone="warning" />
             <StatCard
               label="Crescimento mensal"
-              value={
-                growth
-                  ? `${growth.value >= 0 ? "+" : ""}${formatPercent(growth.value)}`
-                  : "—"
-              }
-              hint={
-                growth
-                  ? `${monthLabel(growth.from)} → ${monthLabel(growth.to)}`
-                  : "Dados insuficientes"
-              }
+              value={growth ? `${growth.value >= 0 ? "+" : ""}${formatPercent(growth.value)}` : "—"}
+              hint={growth ? `${monthLabel(growth.from)} → ${monthLabel(growth.to)}` : "Dados insuficientes"}
               tone={growth ? (growth.value >= 0 ? "success" : "danger") : "default"}
             />
             <StatCard
               label="Relação receitas/despesas"
-              value={td.total > 0 ? (tr.total / td.total).toFixed(2).replace(".", ",") : "—"}
+              value={
+                k.despesa.original > 0
+                  ? (k.receita.original / k.despesa.original).toFixed(2).replace(".", ",")
+                  : "—"
+              }
             />
             <StatCard
               label="% recebido"
-              value={tr.total ? formatPercent(tr.settled / tr.total) : "—"}
+              value={k.receita.original ? formatPercent(k.receita.settled / k.receita.original) : "—"}
               tone="success"
-            />
-            <StatCard
-              label="% em aberto (receitas)"
-              value={tr.total ? formatPercent(tr.open / tr.total) : "—"}
-              tone="warning"
-            />
-            <StatCard
-              label="% vencido (receitas)"
-              value={tr.total ? formatPercent(tr.overdue / tr.total) : "—"}
-              tone="danger"
             />
             <StatCard
               label="% pago"
-              value={td.total ? formatPercent(td.settled / td.total) : "—"}
+              value={k.despesa.original ? formatPercent(k.despesa.settled / k.despesa.original) : "—"}
               tone="success"
             />
             <StatCard
-              label="Concentração de receita (top 5)"
-              value={top5Share !== null ? formatPercent(top5Share) : "—"}
+              label="Inadimplência (receitas)"
+              value={k.receita.original ? formatPercent(k.receita.overdue / k.receita.original) : "—"}
+              tone="danger"
             />
             <StatCard
-              label="Concentração de despesas (top 5)"
-              value={top5ShareExp !== null ? formatPercent(top5ShareExp) : "—"}
+              label="Atraso em despesas"
+              value={k.despesa.original ? formatPercent(k.despesa.overdue / k.despesa.original) : "—"}
+              tone="danger"
             />
+            <StatCard label="Concentração top 5 (clientes)" value={formatPercent(topShare(clientes, 5))} />
+            <StatCard label="Concentração top 10 (clientes)" value={formatPercent(topShare(clientes, 10))} />
+            <StatCard label="Concentração top 5 (fornecedores)" value={formatPercent(topShare(fornecedores, 5))} />
+            <StatCard label="Clientes ativos" value={String(clientes.length)} />
+            <StatCard label="Fornecedores ativos" value={String(fornecedores.length)} />
             <StatCard
               label="Prazo médio de recebimento"
               value={prazoReceb !== null ? `${Math.round(prazoReceb)} dias` : "—"}
@@ -200,44 +170,84 @@ function Analises() {
               value={prazoPag !== null ? `${Math.round(prazoPag)} dias` : "—"}
               hint="Emissão até vencimento"
             />
+            <StatCard
+              label="DSO realizado"
+              value={dso !== null ? `${Math.round(dso)} dias` : "—"}
+              hint="Emissão até recebimento"
+            />
+            <StatCard
+              label="DPO realizado"
+              value={dpo !== null ? `${Math.round(dpo)} dias` : "—"}
+              hint="Emissão até pagamento"
+            />
           </div>
 
           <SectionCard
-            title="Previsão de fluxo"
-            description="Baseada exclusivamente nos lançamentos em aberto"
+            title="Projeção determinística de fluxo"
+            description="Baseada exclusivamente nos títulos em aberto importados"
           >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-sm">
-                <thead className="border-b border-border">
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="py-2">Janela</th>
-                    <th className="py-2 text-right">Recebimentos</th>
-                    <th className="py-2 text-right">Pagamentos</th>
-                    <th className="py-2 text-right">Fluxo líquido projetado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {forecast.map((f) => (
-                    <tr key={f.label} className="border-b border-border/60 last:border-0">
-                      <td className="py-2">{f.label}</td>
-                      <td className="num py-2 text-right text-success">{formatBRL(f.inflow)}</td>
-                      <td className="num py-2 text-right text-destructive">{formatBRL(f.outflow)}</td>
-                      <td className={`num py-2 text-right font-semibold ${f.net >= 0 ? "text-success" : "text-destructive"}`}>
-                        {formatBRL(f.net)}
-                      </td>
+            <FlowTable rows={forecast} showPeriod />
+          </SectionCard>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <SectionCard title="A receber por vencimento" description="Títulos em aberto ainda a vencer">
+              <AgingTable rows={agingReceberFut} />
+            </SectionCard>
+            <SectionCard title="Receber vencido (aging)" description="Dias de atraso">
+              <AgingTable rows={agingReceberVenc} />
+            </SectionCard>
+            <SectionCard title="A pagar por vencimento" description="Títulos em aberto ainda a vencer">
+              <AgingTable rows={agingPagarFut} />
+            </SectionCard>
+            <SectionCard title="Pagar vencido (aging)" description="Dias de atraso">
+              <AgingTable rows={agingPagarVenc} />
+            </SectionCard>
+          </div>
+
+          <SectionCard
+            title="Pressão financeira"
+            description="Datas com maior concentração de pagamentos em aberto"
+          >
+            {pressure.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum pagamento futuro em aberto.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[620px] text-sm">
+                  <thead className="border-b border-border">
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="py-2">Data</th>
+                      <th className="py-2 text-right">A pagar</th>
+                      <th className="py-2 text-right">A receber</th>
+                      <th className="py-2 text-right">Títulos</th>
+                      <th className="py-2 text-right">Líquido</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {pressure.map((p) => (
+                      <tr key={p.date} className="border-b border-border/60 last:border-0">
+                        <td className="num py-2">{p.date.split("-").reverse().join("/")}</td>
+                        <td className="num py-2 text-right text-destructive">{formatBRL(p.pay)}</td>
+                        <td className="num py-2 text-right text-success">{formatBRL(p.receive)}</td>
+                        <td className="num py-2 text-right">{p.count}</td>
+                        <td
+                          className={`num py-2 text-right font-semibold ${p.receive - p.pay >= 0 ? "text-success" : "text-destructive"}`}
+                        >
+                          {formatBRL(p.receive - p.pay)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </SectionCard>
 
           <SectionCard title="Clientes" description="Ranking por faturamento no período">
-            <PartyTable rows={clientes} total={tr.total} settledLabel="Recebido" showShare />
+            <PartyTable rows={clientes} settledLabel="Recebido" />
           </SectionCard>
 
           <SectionCard title="Fornecedores" description="Ranking por despesas no período">
-            <PartyTable rows={fornecedores} total={td.total} settledLabel="Pago" />
+            <PartyTable rows={fornecedores} settledLabel="Pago" />
           </SectionCard>
         </div>
       )}
@@ -245,17 +255,37 @@ function Analises() {
   );
 }
 
-function PartyTable({
-  rows,
-  total,
-  settledLabel,
-  showShare,
-}: {
-  rows: PartyRow[];
-  total: number;
-  settledLabel: string;
-  showShare?: boolean;
-}) {
+function AgingTable({ rows }: { rows: AgingBucket[] }) {
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  if (total <= 0)
+    return <p className="text-sm text-muted-foreground">Sem saldo em aberto nesta faixa.</p>;
+  return (
+    <table className="w-full text-sm">
+      <thead className="border-b border-border">
+        <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <th className="py-2">Faixa</th>
+          <th className="py-2 text-right">Títulos</th>
+          <th className="py-2 text-right">Valor</th>
+          <th className="py-2 text-right">Part.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.label} className="border-b border-border/60 last:border-0">
+            <td className="py-2">{r.label}</td>
+            <td className="num py-2 text-right">{r.count}</td>
+            <td className="num py-2 text-right">{formatBRL(r.amount)}</td>
+            <td className="num py-2 text-right text-muted-foreground">
+              {formatPercent(r.amount / total)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function PartyTable({ rows, settledLabel }: { rows: PartyRow[]; settledLabel: string }) {
   if (rows.length === 0)
     return <p className="text-sm text-muted-foreground">Sem registros no período.</p>;
   return (
@@ -269,7 +299,7 @@ function PartyTable({
             <th className="py-2 text-right">Em aberto</th>
             <th className="py-2 text-right">Vencido</th>
             <th className="py-2 text-right">Docs</th>
-            {showShare && <th className="py-2 text-right">Part.</th>}
+            <th className="py-2 text-right">Part.</th>
           </tr>
         </thead>
         <tbody>
@@ -283,11 +313,7 @@ function PartyTable({
               <td className="num py-2 text-right text-warning">{formatBRL(r.open)}</td>
               <td className="num py-2 text-right text-destructive">{formatBRL(r.overdue)}</td>
               <td className="num py-2 text-right">{r.count}</td>
-              {showShare && (
-                <td className="num py-2 text-right">
-                  {total > 0 ? formatPercent(r.total / total) : "—"}
-                </td>
-              )}
+              <td className="num py-2 text-right">{formatPercent(r.share)}</td>
             </tr>
           ))}
         </tbody>
