@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -20,16 +22,16 @@ import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState, SectionCard, StatCard } from "@/components/StatCard";
 import { useMovements } from "@/hooks/useMovements";
 import { usePeriod } from "@/lib/period";
+import { formatBRL, formatDate, formatPercent } from "@/lib/finance";
 import {
-  addDaysISO,
-  formatBRL,
-  formatDate,
-  monthKey,
-  monthLabel,
-  todayISO,
-  totalize,
-  type Movement,
-} from "@/lib/finance";
+  dueWindows,
+  financialPressure,
+  granularityFor,
+  periodKpis,
+  projections,
+  statusDistribution,
+  timeSeries,
+} from "@/lib/analytics";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -54,56 +56,45 @@ export const Route = createFileRoute("/")({
 
 function Dashboard() {
   const { data, isLoading } = useMovements();
-  const { filter } = usePeriod();
-  const all = data ?? [];
+  const { filter, range, label } = usePeriod();
+  const all = useMemo(() => data ?? [], [data]);
   const rows = useMemo(() => filter(all), [all, filter]);
 
-  const receitas = rows.filter((m) => m.type === "RECEITA");
-  const despesas = rows.filter((m) => m.type === "DESPESA");
-  const tr = totalize(receitas);
-  const td = totalize(despesas);
-
-  const monthly = useMemo(() => {
-    const map = new Map<string, { mes: string; receitas: number; despesas: number }>();
-    for (const m of rows) {
-      const k = monthKey(m.due_date);
-      if (!k) continue;
-      const cur = map.get(k) ?? { mes: k, receitas: 0, despesas: 0 };
-      if (m.type === "RECEITA") cur.receitas += m.original_amount;
-      else cur.despesas += m.original_amount;
-      map.set(k, cur);
-    }
-    return Array.from(map.values())
-      .sort((a, b) => a.mes.localeCompare(b.mes))
-      .map((r) => ({ ...r, label: monthLabel(r.mes), resultado: r.receitas - r.despesas }));
-  }, [rows]);
-
-  const statusData = useMemo(() => {
-    const today = todayISO();
-    let liquidado = 0,
-      aberto = 0,
-      atrasado = 0;
-    for (const m of rows) {
-      liquidado += m.paid_amount;
-      if (m.open_amount > 0) {
-        if (m.due_date && m.due_date < today) atrasado += m.open_amount;
-        else aberto += m.open_amount;
-      }
-    }
-    return [
-      { name: "Recebido/Pago", value: liquidado, fill: "var(--color-chart-1)" },
-      { name: "Em aberto", value: aberto, fill: "var(--color-chart-4)" },
-      { name: "Atrasado", value: atrasado, fill: "var(--color-chart-2)" },
-    ].filter((d) => d.value > 0);
-  }, [rows]);
-
-  const forecast = useMemo(() => forecastWindows(all), [all]);
+  const k = useMemo(() => periodKpis(rows), [rows]);
+  const series = useMemo(
+    () => timeSeries(rows, granularityFor(range, rows)),
+    [rows, range],
+  );
+  const statusData = useMemo(() => statusDistribution(rows), [rows]);
+  const forecast = useMemo(() => projections(all), [all]);
+  const due = useMemo(() => dueWindows(all), [all]);
   const pressure = useMemo(() => financialPressure(all), [all]);
+
+  const cumulative = useMemo(() => {
+    let acc = 0;
+    return series.map((p) => {
+      acc += p.liquido;
+      return { label: p.label, liquido: p.liquido, acumulado: Math.round(acc * 100) / 100 };
+    });
+  }, [series]);
+
+  const resultado = k.receita.original - k.despesa.original;
+  const caixa = k.netRealized;
+  const inadimplencia =
+    k.receita.original > 0 ? k.receita.overdue / k.receita.original : 0;
+  const taxaRecebimento =
+    k.receita.original > 0 ? k.receita.settled / k.receita.original : 0;
+  const taxaPagamento =
+    k.despesa.original > 0 ? k.despesa.settled / k.despesa.original : 0;
+  const cobertura =
+    k.despesa.open + k.despesa.overdue > 0
+      ? (k.receita.open + k.receita.overdue) / (k.despesa.open + k.despesa.overdue)
+      : null;
 
   return (
     <AppLayout
       title="Dashboard"
-      subtitle="Visão financeira consolidada"
+      subtitle={`Visão financeira consolidada · ${label}`}
       actions={<PeriodFilter />}
     >
       {isLoading ? (
@@ -112,89 +103,160 @@ function Dashboard() {
         <EmptyState />
       ) : (
         <div className="space-y-6">
-          <div>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Receitas
-            </h2>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Faturamento" value={formatBRL(tr.total)} hint={`${tr.count} documentos`} />
-              <StatCard label="Recebido" value={formatBRL(tr.settled)} tone="success" />
-              <StatCard label="A receber" value={formatBRL(tr.open)} tone="warning" />
-              <StatCard label="Vencido" value={formatBRL(tr.overdue)} tone="danger" />
-            </div>
-          </div>
+          <Group title="Receitas">
+            <StatCard
+              label="Faturamento"
+              value={formatBRL(k.receita.original)}
+              hint={`${k.receita.count} documentos`}
+            />
+            <StatCard
+              label="Recebido"
+              value={formatBRL(k.receita.settled)}
+              hint={`${k.receita.settledCount} liquidados`}
+              tone="success"
+            />
+            <StatCard
+              label="A receber"
+              value={formatBRL(k.receita.open)}
+              hint={`${k.receita.openCount} títulos`}
+              tone="warning"
+            />
+            <StatCard
+              label="Vencido"
+              value={formatBRL(k.receita.overdue)}
+              hint={`${k.receita.overdueCount} títulos`}
+              tone="danger"
+            />
+          </Group>
 
-          <div>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Despesas
-            </h2>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Total" value={formatBRL(td.total)} hint={`${td.count} documentos`} />
-              <StatCard label="Pago" value={formatBRL(td.settled)} tone="success" />
-              <StatCard label="A pagar" value={formatBRL(td.open)} tone="warning" />
-              <StatCard label="Vencido" value={formatBRL(td.overdue)} tone="danger" />
-            </div>
-          </div>
+          <Group title="Despesas">
+            <StatCard
+              label="Total"
+              value={formatBRL(k.despesa.original)}
+              hint={`${k.despesa.count} documentos`}
+            />
+            <StatCard
+              label="Pago"
+              value={formatBRL(k.despesa.settled)}
+              hint={`${k.despesa.settledCount} liquidados`}
+              tone="success"
+            />
+            <StatCard
+              label="A pagar"
+              value={formatBRL(k.despesa.open)}
+              hint={`${k.despesa.openCount} títulos`}
+              tone="warning"
+            />
+            <StatCard
+              label="Vencido"
+              value={formatBRL(k.despesa.overdue)}
+              hint={`${k.despesa.overdueCount} títulos`}
+              tone="danger"
+            />
+          </Group>
 
-          <div>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Resultado
-            </h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <StatCard
-                label="Receitas − Despesas"
-                value={formatBRL(tr.total - td.total)}
-                tone={tr.total - td.total >= 0 ? "success" : "danger"}
-              />
-              <StatCard
-                label="Fluxo previsto (em aberto)"
-                value={formatBRL(tr.open - td.open)}
-                tone={tr.open - td.open >= 0 ? "success" : "danger"}
-                hint="A receber menos a pagar no período"
-              />
-            </div>
-          </div>
+          <Group title="Resultado e indicadores">
+            <StatCard
+              label="Resultado (faturado − despesas)"
+              value={formatBRL(resultado)}
+              tone={resultado >= 0 ? "success" : "danger"}
+            />
+            <StatCard
+              label="Caixa realizado (recebido − pago)"
+              value={formatBRL(caixa)}
+              tone={caixa >= 0 ? "success" : "danger"}
+            />
+            <StatCard
+              label="Fluxo em aberto (a receber − a pagar)"
+              value={formatBRL(k.netOpen)}
+              tone={k.netOpen >= 0 ? "success" : "danger"}
+            />
+            <StatCard
+              label="Vencido líquido"
+              value={formatBRL(k.netOverdue)}
+              tone={k.netOverdue >= 0 ? "warning" : "danger"}
+            />
+            <StatCard
+              label="Taxa de recebimento"
+              value={formatPercent(taxaRecebimento)}
+              tone="success"
+            />
+            <StatCard label="Taxa de pagamento" value={formatPercent(taxaPagamento)} />
+            <StatCard
+              label="Inadimplência"
+              value={formatPercent(inadimplencia)}
+              hint="Vencido / faturamento"
+              tone="danger"
+            />
+            <StatCard
+              label="Cobertura de obrigações"
+              value={cobertura === null ? "—" : `${cobertura.toFixed(2).replace(".", ",")}x`}
+              hint="A receber / a pagar em aberto"
+              tone={cobertura !== null && cobertura >= 1 ? "success" : "warning"}
+            />
+          </Group>
 
           <div className="grid gap-4 xl:grid-cols-2">
-            <SectionCard title="Faturamento por mês">
+            <SectionCard title="Recebido x Pago" description="Realizado por vencimento">
               <ChartBox>
-                <BarChart data={monthly}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" fontSize={11} />
-                  <YAxis fontSize={11} width={70} tickFormatter={compact} />
-                  <Tooltip formatter={(v: number) => formatBRL(v)} />
-                  <Bar dataKey="receitas" name="Receitas" fill="var(--color-chart-1)" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ChartBox>
-            </SectionCard>
-
-            <SectionCard title="Despesas por mês">
-              <ChartBox>
-                <BarChart data={monthly}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" fontSize={11} />
-                  <YAxis fontSize={11} width={70} tickFormatter={compact} />
-                  <Tooltip formatter={(v: number) => formatBRL(v)} />
-                  <Bar dataKey="despesas" name="Despesas" fill="var(--color-chart-2)" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ChartBox>
-            </SectionCard>
-
-            <SectionCard title="Receitas x Despesas">
-              <ChartBox>
-                <LineChart data={monthly}>
+                <BarChart data={series}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" fontSize={11} />
                   <YAxis fontSize={11} width={70} tickFormatter={compact} />
                   <Tooltip formatter={(v: number) => formatBRL(v)} />
                   <Legend />
-                  <Line type="monotone" dataKey="receitas" name="Receitas" stroke="var(--color-chart-1)" dot={false} strokeWidth={2} />
-                  <Line type="monotone" dataKey="despesas" name="Despesas" stroke="var(--color-chart-2)" dot={false} strokeWidth={2} />
+                  <Bar dataKey="recebido" name="Recebido" fill="var(--color-chart-1)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="pago" name="Pago" fill="var(--color-chart-2)" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ChartBox>
+            </SectionCard>
+
+            <SectionCard title="A receber x A pagar" description="Saldos em aberto por vencimento">
+              <ChartBox>
+                <BarChart data={series}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" fontSize={11} />
+                  <YAxis fontSize={11} width={70} tickFormatter={compact} />
+                  <Tooltip formatter={(v: number) => formatBRL(v)} />
+                  <Legend />
+                  <Bar dataKey="aReceber" name="A receber" fill="var(--color-chart-4)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="aPagar" name="A pagar" fill="var(--color-chart-3)" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ChartBox>
+            </SectionCard>
+
+            <SectionCard title="Fluxo líquido" description="Entradas menos saídas por período">
+              <ChartBox>
+                <LineChart data={series}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" fontSize={11} />
+                  <YAxis fontSize={11} width={70} tickFormatter={compact} />
+                  <Tooltip formatter={(v: number) => formatBRL(v)} />
+                  <Line type="monotone" dataKey="liquido" name="Líquido" stroke="var(--color-chart-1)" dot={false} strokeWidth={2} />
                 </LineChart>
               </ChartBox>
             </SectionCard>
 
-            <SectionCard title="Status financeiro" description="Distribuição por situação">
+            <SectionCard title="Saldo acumulado" description="Acúmulo do fluxo líquido no período">
+              <ChartBox>
+                <AreaChart data={cumulative}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" fontSize={11} />
+                  <YAxis fontSize={11} width={70} tickFormatter={compact} />
+                  <Tooltip formatter={(v: number) => formatBRL(v)} />
+                  <Area
+                    type="monotone"
+                    dataKey="acumulado"
+                    name="Acumulado"
+                    stroke="var(--color-chart-1)"
+                    fill="var(--color-chart-1)"
+                    fillOpacity={0.18}
+                  />
+                </AreaChart>
+              </ChartBox>
+            </SectionCard>
+
+            <SectionCard title="Distribuição por situação" description="Realizado, em aberto e vencido">
               <ChartBox>
                 <PieChart>
                   <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={95} label={false}>
@@ -207,36 +269,17 @@ function Dashboard() {
                 </PieChart>
               </ChartBox>
             </SectionCard>
+
+            <SectionCard title="Vencimentos imediatos" description="Títulos em aberto por janela">
+              <FlowTable rows={due} />
+            </SectionCard>
           </div>
 
           <SectionCard
-            title="Fluxo previsto"
-            description="Recebimentos e pagamentos em aberto por vencimento — sem saldo bancário inicial"
+            title="Projeção determinística"
+            description="Somente títulos em aberto, por data de vencimento — sem saldo bancário inicial"
           >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-sm">
-                <thead className="border-b border-border">
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="py-2">Janela</th>
-                    <th className="py-2 text-right">Recebimentos previstos</th>
-                    <th className="py-2 text-right">Pagamentos previstos</th>
-                    <th className="py-2 text-right">Fluxo líquido projetado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {forecast.map((f) => (
-                    <tr key={f.label} className="border-b border-border/60 last:border-0">
-                      <td className="py-2">{f.label}</td>
-                      <td className="num py-2 text-right text-success">{formatBRL(f.inflow)}</td>
-                      <td className="num py-2 text-right text-destructive">{formatBRL(f.outflow)}</td>
-                      <td className={`num py-2 text-right font-semibold ${f.net >= 0 ? "text-success" : "text-destructive"}`}>
-                        {formatBRL(f.net)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <FlowTable rows={forecast} showPeriod />
           </SectionCard>
 
           <SectionCard
@@ -266,7 +309,9 @@ function Dashboard() {
                         <td className="num py-2 text-right text-destructive">{formatBRL(p.pay)}</td>
                         <td className="num py-2 text-right text-success">{formatBRL(p.receive)}</td>
                         <td className="num py-2 text-right">{p.count}</td>
-                        <td className={`num py-2 text-right font-semibold ${p.receive - p.pay >= 0 ? "text-success" : "text-destructive"}`}>
+                        <td
+                          className={`num py-2 text-right font-semibold ${p.receive - p.pay >= 0 ? "text-success" : "text-destructive"}`}
+                        >
                           {formatBRL(p.receive - p.pay)}
                         </td>
                       </tr>
@@ -282,6 +327,70 @@ function Dashboard() {
   );
 }
 
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h2>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
+    </div>
+  );
+}
+
+export function FlowTable({
+  rows,
+  showPeriod,
+}: {
+  rows: {
+    label: string;
+    from: string;
+    to: string;
+    inflow: number;
+    outflow: number;
+    net: number;
+    count: number;
+  }[];
+  showPeriod?: boolean;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] text-sm">
+        <thead className="border-b border-border">
+          <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <th className="py-2">Janela</th>
+            {showPeriod && <th className="py-2">Período</th>}
+            <th className="py-2 text-right">Recebimentos</th>
+            <th className="py-2 text-right">Pagamentos</th>
+            <th className="py-2 text-right">Títulos</th>
+            <th className="py-2 text-right">Líquido</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((f) => (
+            <tr key={f.label} className="border-b border-border/60 last:border-0">
+              <td className="py-2">{f.label}</td>
+              {showPeriod && (
+                <td className="num py-2 text-xs text-muted-foreground">
+                  {formatDate(f.from)} – {formatDate(f.to)}
+                </td>
+              )}
+              <td className="num py-2 text-right text-success">{formatBRL(f.inflow)}</td>
+              <td className="num py-2 text-right text-destructive">{formatBRL(f.outflow)}</td>
+              <td className="num py-2 text-right">{f.count}</td>
+              <td
+                className={`num py-2 text-right font-semibold ${f.net >= 0 ? "text-success" : "text-destructive"}`}
+              >
+                {formatBRL(f.net)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ChartBox({ children }: { children: React.ReactElement }) {
   return (
     <div className="h-64 w-full">
@@ -294,37 +403,4 @@ function ChartBox({ children }: { children: React.ReactElement }) {
 
 function compact(v: number) {
   return new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(v);
-}
-
-export function forecastWindows(all: Movement[]) {
-  const today = todayISO();
-  return [7, 15, 30, 60, 90].map((d) => {
-    const limit = addDaysISO(d);
-    const inRange = all.filter(
-      (m) => m.open_amount > 0 && m.due_date && m.due_date >= today && m.due_date <= limit,
-    );
-    const inflow = inRange
-      .filter((m) => m.type === "RECEITA")
-      .reduce((s, m) => s + m.open_amount, 0);
-    const outflow = inRange
-      .filter((m) => m.type === "DESPESA")
-      .reduce((s, m) => s + m.open_amount, 0);
-    return { label: `Próximos ${d} dias`, inflow, outflow, net: inflow - outflow };
-  });
-}
-
-export function financialPressure(all: Movement[]) {
-  const today = todayISO();
-  const map = new Map<string, { date: string; pay: number; receive: number; count: number }>();
-  for (const m of all) {
-    if (m.open_amount <= 0 || !m.due_date || m.due_date < today) continue;
-    const cur = map.get(m.due_date) ?? { date: m.due_date, pay: 0, receive: 0, count: 0 };
-    if (m.type === "DESPESA") cur.pay += m.open_amount;
-    else cur.receive += m.open_amount;
-    cur.count += 1;
-    map.set(m.due_date, cur);
-  }
-  return Array.from(map.values())
-    .sort((a, b) => b.pay - b.receive - (a.pay - a.receive))
-    .slice(0, 10);
 }
