@@ -5,12 +5,19 @@ import { EmptyState } from "@/components/StatCard";
 import { useMovements } from "@/hooks/useMovements";
 import { usePeriod } from "@/lib/period";
 import {
-  DESPESA_STATUS,
-  RECEITA_STATUS,
-  STATUS_LABEL,
+  FIN_STATE_OPTIONS,
+  finState,
+  finStatusLabel,
+  openOf,
+  paidOf,
+  originalOf,
+  sideKpis,
+  type FinState,
+} from "@/lib/analytics";
+import {
   formatBRL,
   formatDate,
-  totalize,
+  todayISO,
   type Movement,
   type MovementType,
 } from "@/lib/finance";
@@ -30,10 +37,13 @@ type SortKey =
 export function MovementsPage({ type }: { type: MovementType }) {
   const isReceita = type === "RECEITA";
   const { data, isLoading } = useMovements();
-  const { filter } = usePeriod();
+  const { filter, label } = usePeriod();
+  const today = todayISO();
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
+  const [state, setState] = useState<"" | FinState>("");
   const [party, setParty] = useState("");
+  const [minValue, setMinValue] = useState("");
+  const [maxValue, setMaxValue] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("due_date");
   const [asc, setAsc] = useState(true);
 
@@ -44,20 +54,29 @@ export function MovementsPage({ type }: { type: MovementType }) {
 
   const parties = useMemo(
     () =>
-      Array.from(new Set(base.map((m) => m.counterparty ?? "").filter(Boolean))).sort(),
+      Array.from(
+        new Set(base.map((m) => m.counterparty ?? "").filter(Boolean)),
+      ).sort((a, b) => a.localeCompare(b, "pt-BR")),
     [base],
   );
 
   const rows = useMemo(() => {
     let out = filter(base);
-    if (status) out = out.filter((m) => m.status === status);
+    if (state) out = out.filter((m) => finState(m, today) === state);
     if (party) out = out.filter((m) => m.counterparty === party);
+    const min = minValue ? Number(minValue.replace(",", ".")) : null;
+    const max = maxValue ? Number(maxValue.replace(",", ".")) : null;
+    if (min !== null && !Number.isNaN(min))
+      out = out.filter((m) => originalOf(m) >= min);
+    if (max !== null && !Number.isNaN(max))
+      out = out.filter((m) => originalOf(m) <= max);
     if (search.trim()) {
       const q = search.toLowerCase();
       out = out.filter(
         (m) =>
           (m.counterparty ?? "").toLowerCase().includes(q) ||
           (m.document ?? "").toLowerCase().includes(q) ||
+          (m.counterparty_document ?? "").toLowerCase().includes(q) ||
           (m.description ?? "").toLowerCase().includes(q),
       );
     }
@@ -68,10 +87,20 @@ export function MovementsPage({ type }: { type: MovementType }) {
       return String(va).localeCompare(String(vb), "pt-BR");
     });
     return asc ? sorted : sorted.reverse();
-  }, [base, filter, status, party, search, sortKey, asc]);
+  }, [
+    base,
+    filter,
+    state,
+    party,
+    minValue,
+    maxValue,
+    search,
+    sortKey,
+    asc,
+    today,
+  ]);
 
-  const totals = totalize(rows);
-  const statuses = isReceita ? RECEITA_STATUS : DESPESA_STATUS;
+  const k = sideKpis(rows, today);
 
   const sortBtn = (key: SortKey, label: string, right = false) => (
     <button
@@ -95,7 +124,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
   return (
     <AppLayout
       title={isReceita ? "Contas a Receber" : "Contas a Pagar"}
-      subtitle={isReceita ? "Receitas importadas do Bling" : "Despesas importadas do Bling"}
+      subtitle={`${isReceita ? "Títulos a receber" : "Títulos a pagar"} — ${label}`}
       actions={<PeriodFilter />}
     >
       {isLoading ? (
@@ -104,18 +133,29 @@ export function MovementsPage({ type }: { type: MovementType }) {
         <EmptyState />
       ) : (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <MiniTotal label="Registros" value={String(totals.count)} />
-            <MiniTotal label="Valor" value={formatBRL(totals.total)} />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <MiniTotal label="Títulos" value={String(k.count)} />
+            <MiniTotal
+              label={isReceita ? "Faturamento" : "Despesa total"}
+              value={formatBRL(k.original)}
+            />
             <MiniTotal
               label={isReceita ? "Recebido" : "Pago"}
-              value={formatBRL(totals.settled)}
+              value={formatBRL(k.settled)}
+              hint={`${k.settledCount} títulos`}
               tone="text-success"
             />
             <MiniTotal
-              label="Saldo em aberto"
-              value={formatBRL(totals.open)}
+              label="Em aberto"
+              value={formatBRL(k.open)}
+              hint={`${k.openCount} títulos`}
               tone="text-warning"
+            />
+            <MiniTotal
+              label="Vencido"
+              value={formatBRL(k.overdue)}
+              hint={`${k.overdueCount} títulos`}
+              tone="text-destructive"
             />
           </div>
 
@@ -123,18 +163,18 @@ export function MovementsPage({ type }: { type: MovementType }) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Pesquisar documento, histórico ou nome"
+              placeholder="Pesquisar documento, histórico, CPF/CNPJ ou nome"
               className="min-w-56 flex-1 rounded-md border border-input bg-card px-3 py-2 text-sm"
             />
             <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              value={state}
+              onChange={(e) => setState(e.target.value as "" | FinState)}
               className="rounded-md border border-input bg-card px-3 py-2 text-sm"
             >
-              <option value="">Todos os status</option>
-              {statuses.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
+              <option value="">Todas as situações</option>
+              {FIN_STATE_OPTIONS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
                 </option>
               ))}
             </select>
@@ -152,6 +192,20 @@ export function MovementsPage({ type }: { type: MovementType }) {
                 </option>
               ))}
             </select>
+            <input
+              value={minValue}
+              onChange={(e) => setMinValue(e.target.value)}
+              inputMode="decimal"
+              placeholder="Valor mín."
+              className="w-28 rounded-md border border-input bg-card px-3 py-2 text-sm"
+            />
+            <input
+              value={maxValue}
+              onChange={(e) => setMaxValue(e.target.value)}
+              inputMode="decimal"
+              placeholder="Valor máx."
+              className="w-28 rounded-md border border-input bg-card px-3 py-2 text-sm"
+            />
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -164,18 +218,20 @@ export function MovementsPage({ type }: { type: MovementType }) {
                   </th>
                   <th className="px-3 py-2 text-left">{sortBtn("issue_date", "Emissão")}</th>
                   <th className="px-3 py-2 text-left">{sortBtn("due_date", "Vencimento")}</th>
-                  <th className="px-3 py-2 text-left">Pagamento</th>
+                  <th className="px-3 py-2 text-left">
+                    {isReceita ? "Recebimento" : "Pagamento"}
+                  </th>
                   <th className="px-3 py-2 text-right">{sortBtn("original_amount", "Valor", true)}</th>
                   <th className="px-3 py-2 text-right">
                     {sortBtn("paid_amount", isReceita ? "Recebido" : "Pago", true)}
                   </th>
                   <th className="px-3 py-2 text-right">{sortBtn("open_amount", "Saldo", true)}</th>
-                  <th className="px-3 py-2 text-left">{sortBtn("status", "Status")}</th>
+                  <th className="px-3 py-2 text-left">{sortBtn("status", "Situação")}</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.slice(0, 500).map((m) => (
-                  <Row key={m.id} m={m} />
+                  <Row key={m.id} m={m} today={today} />
                 ))}
               </tbody>
               <tfoot className="border-t border-border bg-muted/40 font-medium">
@@ -184,9 +240,11 @@ export function MovementsPage({ type }: { type: MovementType }) {
                     {rows.length} registros
                     {rows.length > 500 && " (exibindo os 500 primeiros)"}
                   </td>
-                  <td className="num px-3 py-2 text-right">{formatBRL(totals.total)}</td>
-                  <td className="num px-3 py-2 text-right">{formatBRL(totals.settled)}</td>
-                  <td className="num px-3 py-2 text-right">{formatBRL(totals.open)}</td>
+                  <td className="num px-3 py-2 text-right">{formatBRL(k.original)}</td>
+                  <td className="num px-3 py-2 text-right">{formatBRL(k.settled)}</td>
+                  <td className="num px-3 py-2 text-right">
+                    {formatBRL(k.open + k.overdue)}
+                  </td>
                   <td />
                 </tr>
               </tfoot>
@@ -198,7 +256,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
   );
 }
 
-function Row({ m }: { m: Movement }) {
+function Row({ m, today }: { m: Movement; today: string }) {
   return (
     <tr className="border-b border-border/60 last:border-0 hover:bg-muted/40">
       <td className="num px-3 py-2 whitespace-nowrap">{m.document ?? ""}</td>
@@ -209,30 +267,34 @@ function Row({ m }: { m: Movement }) {
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.due_date)}</td>
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.payment_date)}</td>
       <td className="num px-3 py-2 text-right whitespace-nowrap">
-        {formatBRL(m.original_amount)}
+        {formatBRL(originalOf(m))}
       </td>
       <td className="num px-3 py-2 text-right whitespace-nowrap">
-        {formatBRL(m.paid_amount)}
+        {formatBRL(paidOf(m))}
       </td>
       <td className="num px-3 py-2 text-right whitespace-nowrap">
-        {formatBRL(m.open_amount)}
+        {formatBRL(openOf(m))}
       </td>
       <td className="px-3 py-2">
-        <StatusBadge status={m.status} />
+        <StatusBadge state={finState(m, today)} label={finStatusLabel(m, today)} />
       </td>
     </tr>
   );
 }
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({
+  state,
+  label,
+}: {
+  state: FinState;
+  label: string;
+}) {
   const tone =
-    status === "RECEBIDO" || status === "PAGO"
+    state === "REALIZADO"
       ? "bg-success/12 text-success"
-      : status === "ATRASADO"
+      : state === "VENCIDO"
         ? "bg-destructive/12 text-destructive"
-        : status.startsWith("PARCIAL")
-          ? "bg-info/12 text-info"
-          : "bg-warning/15 text-warning";
+        : "bg-warning/15 text-warning";
   return (
     <span
       className={cn(
@@ -240,7 +302,7 @@ export function StatusBadge({ status }: { status: string }) {
         tone,
       )}
     >
-      {STATUS_LABEL[status] ?? status}
+      {label}
     </span>
   );
 }
@@ -249,10 +311,12 @@ function MiniTotal({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string;
   value: string;
   tone?: string;
+  hint?: string;
 }) {
   return (
     <div className="rounded-lg border border-border bg-card p-3">
@@ -260,6 +324,7 @@ function MiniTotal({
         {label}
       </div>
       <div className={cn("num mt-1 text-lg font-semibold", tone)}>{value}</div>
+      {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
     </div>
   );
 }
