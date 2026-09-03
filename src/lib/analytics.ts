@@ -511,3 +511,357 @@ export function financialPressure(all: Movement[], today = todayISO(), limit = 1
     .sort((a, b) => b.pay - b.receive - (a.pay - a.receive))
     .slice(0, limit);
 }
+
+/* ============================================================
+ * FLUXO DIÁRIO, BLOCOS DIÁRIOS, ALERTAS
+ * ============================================================ */
+
+const DOW = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const DOW_SHORT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+export function addDays(dISO: string, n: number): string {
+  const d = fromISO(dISO);
+  d.setDate(d.getDate() + n);
+  return toISO(d);
+}
+
+export function dowLabel(dISO: string, short = true): string {
+  const i = fromISO(dISO).getDay();
+  return (short ? DOW_SHORT : DOW)[i] ?? "";
+}
+
+export interface DayFlow {
+  date: string;
+  label: string;
+  /** em aberto (previsto) com vencimento no dia */
+  receber: number;
+  pagar: number;
+  /** realizado com vencimento no dia */
+  recebido: number;
+  pago: number;
+  /** entradas totais − saídas totais do dia */
+  saldo: number;
+  acumulado: number;
+  count: number;
+}
+
+/** Série diária completa (todos os dias do intervalo, mesmo sem títulos). */
+export function dailyFlow(
+  all: Movement[],
+  from: string,
+  to: string,
+  today = todayISO(),
+): DayFlow[] {
+  const buckets = new Map<string, DayFlow>();
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    buckets.set(d, {
+      date: d,
+      label: `${d.slice(8)}/${d.slice(5, 7)}`,
+      receber: 0,
+      pagar: 0,
+      recebido: 0,
+      pago: 0,
+      saldo: 0,
+      acumulado: 0,
+      count: 0,
+    });
+    if (buckets.size > 800) break;
+  }
+  for (const m of all) {
+    const d = m.due_date;
+    if (!d) continue;
+    const b = buckets.get(d);
+    if (!b) continue;
+    const st = finState(m, today);
+    if (st === "REALIZADO") {
+      if (m.type === "RECEITA") b.recebido = money(b.recebido + paidOf(m));
+      else b.pago = money(b.pago + paidOf(m));
+    } else if (m.type === "RECEITA") b.receber = money(b.receber + openOf(m));
+    else b.pagar = money(b.pagar + openOf(m));
+    b.count += 1;
+  }
+  let acc = 0;
+  const out = Array.from(buckets.values());
+  for (const b of out) {
+    b.saldo = money(b.receber + b.recebido - b.pagar - b.pago);
+    acc = money(acc + b.saldo);
+    b.acumulado = acc;
+  }
+  return out;
+}
+
+export interface DayBlock {
+  date: string;
+  toReceive: number;
+  toReceiveCount: number;
+  toPay: number;
+  toPayCount: number;
+  received: number;
+  receivedCount: number;
+  paid: number;
+  paidCount: number;
+  net: number;
+  realizedNet: number;
+  topClients: { name: string; amount: number }[];
+  topSuppliers: { name: string; amount: number }[];
+}
+
+function topOf(map: Map<string, number>, n = 3) {
+  return Array.from(map.entries())
+    .map(([name, amount]) => ({ name, amount: money(amount) }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, n);
+}
+
+/** Consolidação de um único dia (vencimento). */
+export function dayBlock(all: Movement[], date: string, today = todayISO()): DayBlock {
+  const cli = new Map<string, number>();
+  const forn = new Map<string, number>();
+  const b: DayBlock = {
+    date,
+    toReceive: 0,
+    toReceiveCount: 0,
+    toPay: 0,
+    toPayCount: 0,
+    received: 0,
+    receivedCount: 0,
+    paid: 0,
+    paidCount: 0,
+    net: 0,
+    realizedNet: 0,
+    topClients: [],
+    topSuppliers: [],
+  };
+  for (const m of all) {
+    if (m.due_date !== date) continue;
+    const st = finState(m, today);
+    const name = m.counterparty?.trim() || "(sem identificação)";
+    if (st === "REALIZADO") {
+      if (m.type === "RECEITA") {
+        b.received = money(b.received + paidOf(m));
+        b.receivedCount += 1;
+        cli.set(name, (cli.get(name) ?? 0) + paidOf(m));
+      } else {
+        b.paid = money(b.paid + paidOf(m));
+        b.paidCount += 1;
+        forn.set(name, (forn.get(name) ?? 0) + paidOf(m));
+      }
+    } else if (m.type === "RECEITA") {
+      b.toReceive = money(b.toReceive + openOf(m));
+      b.toReceiveCount += 1;
+      cli.set(name, (cli.get(name) ?? 0) + openOf(m));
+    } else {
+      b.toPay = money(b.toPay + openOf(m));
+      b.toPayCount += 1;
+      forn.set(name, (forn.get(name) ?? 0) + openOf(m));
+    }
+  }
+  b.net = money(b.toReceive + b.received - b.toPay - b.paid);
+  b.realizedNet = money(b.received - b.paid);
+  b.topClients = topOf(cli);
+  b.topSuppliers = topOf(forn);
+  return b;
+}
+
+/** Totais globais em aberto (independem do filtro de período). */
+export interface OpenPosition {
+  receivableOpen: number;
+  receivableOverdue: number;
+  payableOpen: number;
+  payableOverdue: number;
+  receivableTotal: number;
+  payableTotal: number;
+  net: number;
+}
+
+export function openPosition(all: Movement[], today = todayISO()): OpenPosition {
+  let ro = 0, rv = 0, po = 0, pv = 0;
+  for (const m of all) {
+    const st = finState(m, today);
+    if (st === "REALIZADO") continue;
+    const o = openOf(m);
+    if (o <= 0) continue;
+    if (m.type === "RECEITA") {
+      if (st === "VENCIDO") rv = money(rv + o);
+      else ro = money(ro + o);
+    } else if (st === "VENCIDO") pv = money(pv + o);
+    else po = money(po + o);
+  }
+  return {
+    receivableOpen: ro,
+    receivableOverdue: rv,
+    payableOpen: po,
+    payableOverdue: pv,
+    receivableTotal: money(ro + rv),
+    payableTotal: money(po + pv),
+    net: money(ro + rv - po - pv),
+  };
+}
+
+/** Distribuição por situação de um lado (recebíveis ou pagáveis). */
+export function sideDistribution(
+  all: Movement[],
+  type: MovementType,
+  today = todayISO(),
+) {
+  const in7 = addDays(today, 7);
+  const in30 = addDays(today, 30);
+  let realizado = 0, vencido = 0, hoje = 0, d7 = 0, d30 = 0, depois = 0;
+  for (const m of all) {
+    if (m.type !== type) continue;
+    const st = finState(m, today);
+    if (st === "REALIZADO") {
+      realizado = money(realizado + paidOf(m));
+      continue;
+    }
+    const o = openOf(m);
+    if (o <= 0) continue;
+    if (st === "VENCIDO") vencido = money(vencido + o);
+    else if (m.due_date === today) hoje = money(hoje + o);
+    else if (m.due_date && m.due_date <= in7) d7 = money(d7 + o);
+    else if (m.due_date && m.due_date <= in30) d30 = money(d30 + o);
+    else depois = money(depois + o);
+  }
+  return [
+    { name: type === "RECEITA" ? "Recebido" : "Pago", value: realizado, tone: "ok" as const },
+    { name: "Vencido", value: vencido, tone: "bad" as const },
+    { name: "Vence hoje", value: hoje, tone: "warn" as const },
+    { name: "Até 7 dias", value: d7, tone: "warn" as const },
+    { name: "8 a 30 dias", value: d30, tone: "neutral" as const },
+    { name: "Após 30 dias", value: depois, tone: "neutral" as const },
+  ];
+}
+
+/* ---------------- Pontos de atenção (regras objetivas) ---------------- */
+
+export interface Alert {
+  level: "critico" | "atencao" | "info";
+  title: string;
+  detail: string;
+}
+
+export function attentionPoints(all: Movement[], today = todayISO()): Alert[] {
+  const out: Alert[] = [];
+  const pos = openPosition(all, today);
+  const fmt = (v: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+  const dt = (d: string) => `${d.slice(8)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
+
+  if (pos.payableOverdue > 0)
+    out.push({
+      level: "critico",
+      title: "Pagamentos vencidos em aberto",
+      detail: `Existem ${fmt(pos.payableOverdue)} em contas a pagar já vencidas e ainda não quitadas.`,
+    });
+  if (pos.receivableOverdue > 0)
+    out.push({
+      level: "atencao",
+      title: "Recebimentos vencidos",
+      detail: `Existem ${fmt(pos.receivableOverdue)} em contas a receber vencidas e ainda não recebidas.`,
+    });
+
+  const totalReceivable = pos.receivableTotal;
+  if (totalReceivable > 0) {
+    const inad = pos.receivableOverdue / totalReceivable;
+    if (inad >= 0.15)
+      out.push({
+        level: "critico",
+        title: "Inadimplência elevada",
+        detail: `${(inad * 100).toFixed(1).replace(".", ",")}% do total a receber está vencido (${fmt(pos.receivableOverdue)} de ${fmt(totalReceivable)}).`,
+      });
+  }
+
+  if (pos.payableTotal > 0) {
+    const cob = pos.receivableTotal / pos.payableTotal;
+    if (cob < 1)
+      out.push({
+        level: "critico",
+        title: "Cobertura financeira abaixo de 1,00x",
+        detail: `Os recebíveis em aberto (${fmt(pos.receivableTotal)}) não cobrem as obrigações em aberto (${fmt(pos.payableTotal)}). Cobertura: ${cob.toFixed(2).replace(".", ",")}x.`,
+      });
+  }
+
+  // dias deficitários nos próximos 30 dias
+  const flow = dailyFlow(all, today, addDays(today, 30), today);
+  const deficits = flow
+    .filter((d) => d.pagar + d.pago > 0 && d.saldo < 0)
+    .sort((a, b) => a.saldo - b.saldo)
+    .slice(0, 3);
+  for (const d of deficits)
+    out.push({
+      level: "atencao",
+      title: `Dia deficitário em ${dt(d.date)}`,
+      detail: `Pagamentos previstos de ${fmt(d.pagar + d.pago)} contra recebimentos de ${fmt(d.receber + d.recebido)}. Déficit projetado do dia: ${fmt(Math.abs(d.saldo))}.`,
+    });
+
+  const totalPay30 = money(flow.reduce((a, b) => a + b.pagar, 0));
+  if (totalPay30 > 0) {
+    const worst = [...flow].sort((a, b) => b.pagar - a.pagar)[0];
+    if (worst && worst.pagar / totalPay30 >= 0.3)
+      out.push({
+        level: "atencao",
+        title: "Concentração de pagamentos em um único dia",
+        detail: `${dt(worst.date)} concentra ${((worst.pagar / totalPay30) * 100).toFixed(1).replace(".", ",")}% dos pagamentos previstos para os próximos 30 dias (${fmt(worst.pagar)}).`,
+      });
+  }
+
+  const totalRec30 = money(flow.reduce((a, b) => a + b.receber, 0));
+  if (totalRec30 > 0) {
+    const best = [...flow].sort((a, b) => b.receber - a.receber)[0];
+    if (best && best.receber / totalRec30 >= 0.4)
+      out.push({
+        level: "info",
+        title: "Concentração de recebimentos em um único dia",
+        detail: `${dt(best.date)} concentra ${((best.receber / totalRec30) * 100).toFixed(1).replace(".", ",")}% dos recebimentos previstos para os próximos 30 dias (${fmt(best.receber)}).`,
+      });
+  }
+
+  const clientes = rankParties(all, "RECEITA", today);
+  if (clientes.length >= 1) {
+    const share5 = topShare(clientes, 5);
+    if (share5 >= 0.6 && clientes.length >= 3)
+      out.push({
+        level: "atencao",
+        title: "Concentração de clientes",
+        detail: `Os 5 maiores clientes representam ${(share5 * 100).toFixed(1).replace(".", ",")}% do faturamento registrado.`,
+      });
+  }
+  const fornecedores = rankParties(all, "DESPESA", today);
+  if (fornecedores.length >= 3) {
+    const share5 = topShare(fornecedores, 5);
+    if (share5 >= 0.6)
+      out.push({
+        level: "info",
+        title: "Concentração de fornecedores",
+        detail: `Os 5 maiores fornecedores representam ${(share5 * 100).toFixed(1).replace(".", ",")}% das despesas registradas.`,
+      });
+  }
+
+  return out;
+}
+
+/* ---------------- Prazos médios ---------------- */
+
+export function avgSettlementDays(
+  rows: Movement[],
+  type: MovementType,
+  today = todayISO(),
+): { value: number | null; sample: number } {
+  const vals: number[] = [];
+  for (const m of rows) {
+    if (m.type !== type) continue;
+    if (finState(m, today) !== "REALIZADO") continue;
+    const base = m.issue_date;
+    const end = m.payment_date ?? m.due_date;
+    if (!base || !end) continue;
+    const diff = daysBetween(base, end);
+    if (isFinite(diff) && diff >= 0 && diff < 3650) vals.push(diff);
+  }
+  if (!vals.length) return { value: null, sample: 0 };
+  return {
+    value: vals.reduce((a, b) => a + b, 0) / vals.length,
+    sample: vals.length,
+  };
+}
+
+export { daysBetween };
