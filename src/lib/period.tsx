@@ -34,12 +34,16 @@ export type PeriodId =
   | "next30"
   | "next60"
   | "next90"
+  | "next120"
+  | "next6m"
+  | "next12m"
   | "next_week"
   | "next_month"
   | "next_quarter"
   | "next_semester"
   | "next_year"
   | "custom_forecast";
+
 
 export interface PeriodRange {
   from: string | null;
