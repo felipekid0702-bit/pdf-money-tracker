@@ -187,6 +187,19 @@ export function resolvePeriod(
       return range(addDays(today, 1), addDays(today, 60));
     case "next90":
       return range(addDays(today, 1), addDays(today, 90));
+    case "next120":
+      return range(addDays(today, 1), addDays(today, 120));
+    case "next6m": {
+      const a = addDays(today, 1);
+      const b = new Date(y, m + 6, today.getDate());
+      return range(a, b);
+    }
+    case "next12m": {
+      const a = addDays(today, 1);
+      const b = new Date(y + 1, m, today.getDate());
+      return range(a, b);
+    }
+
     case "next_week": {
       const a = addDays(startOfWeek(today), 7);
       return range(a, addDays(a, 6));
