@@ -71,6 +71,10 @@ export const FORECAST_OPTIONS: { id: PeriodId; label: string }[] = [
   { id: "next30", label: "Próximos 30 dias" },
   { id: "next60", label: "Próximos 60 dias" },
   { id: "next90", label: "Próximos 90 dias" },
+  { id: "next120", label: "Próximos 120 dias" },
+  { id: "next6m", label: "Próximos 6 meses" },
+  { id: "next12m", label: "Próximos 12 meses" },
+
   { id: "next_week", label: "Próxima semana" },
   { id: "next_month", label: "Próximo mês" },
   { id: "next_quarter", label: "Próximo trimestre" },
