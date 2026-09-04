@@ -34,12 +34,16 @@ export type PeriodId =
   | "next30"
   | "next60"
   | "next90"
+  | "next120"
+  | "next6m"
+  | "next12m"
   | "next_week"
   | "next_month"
   | "next_quarter"
   | "next_semester"
   | "next_year"
   | "custom_forecast";
+
 
 export interface PeriodRange {
   from: string | null;
@@ -67,6 +71,10 @@ export const FORECAST_OPTIONS: { id: PeriodId; label: string }[] = [
   { id: "next30", label: "Próximos 30 dias" },
   { id: "next60", label: "Próximos 60 dias" },
   { id: "next90", label: "Próximos 90 dias" },
+  { id: "next120", label: "Próximos 120 dias" },
+  { id: "next6m", label: "Próximos 6 meses" },
+  { id: "next12m", label: "Próximos 12 meses" },
+
   { id: "next_week", label: "Próxima semana" },
   { id: "next_month", label: "Próximo mês" },
   { id: "next_quarter", label: "Próximo trimestre" },
@@ -179,6 +187,19 @@ export function resolvePeriod(
       return range(addDays(today, 1), addDays(today, 60));
     case "next90":
       return range(addDays(today, 1), addDays(today, 90));
+    case "next120":
+      return range(addDays(today, 1), addDays(today, 120));
+    case "next6m": {
+      const a = addDays(today, 1);
+      const b = new Date(y, m + 6, today.getDate());
+      return range(a, b);
+    }
+    case "next12m": {
+      const a = addDays(today, 1);
+      const b = new Date(y + 1, m, today.getDate());
+      return range(a, b);
+    }
+
     case "next_week": {
       const a = addDays(startOfWeek(today), 7);
       return range(a, addDays(a, 6));
