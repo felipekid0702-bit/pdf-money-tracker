@@ -74,3 +74,65 @@ export function EmptyState({ message }: { message?: string }) {
     </div>
   );
 }
+
+/** KPI com nome, valor, unidade, período, explicação, fórmula e interpretação. */
+export function KpiCard({
+  name,
+  value,
+  unit,
+  period,
+  explanation,
+  formula,
+  interpretation,
+  tone = "default",
+  insufficient,
+}: {
+  name: string;
+  value: string;
+  unit?: string;
+  period?: string;
+  explanation: string;
+  formula: string;
+  interpretation?: string;
+  tone?: "default" | "success" | "danger" | "warning" | "info";
+  insufficient?: boolean;
+}) {
+  const toneClass = {
+    default: "text-foreground",
+    success: "text-success",
+    danger: "text-destructive",
+    warning: "text-warning",
+    info: "text-info",
+  }[tone];
+
+  return (
+    <div className="flex flex-col rounded-lg border border-border bg-card p-4 shadow-xs">
+      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {name}
+      </span>
+      <div className="mt-2 flex items-baseline gap-1">
+        <span
+          className={cn(
+            "num text-xl font-semibold sm:text-2xl",
+            insufficient ? "text-muted-foreground" : toneClass,
+          )}
+        >
+          {insufficient ? "Dados insuficientes para cálculo" : value}
+        </span>
+        {!insufficient && unit && (
+          <span className="text-xs text-muted-foreground">{unit}</span>
+        )}
+      </div>
+      {period && <p className="mt-1 text-[11px] text-muted-foreground">Período: {period}</p>}
+      <p className="mt-2 text-xs text-muted-foreground">{explanation}</p>
+      <p className="mt-1 text-[11px] text-muted-foreground/80">
+        <span className="font-medium">Fórmula:</span> {formula}
+      </p>
+      {!insufficient && interpretation && (
+        <p className="mt-1 text-[11px] text-muted-foreground/80">
+          <span className="font-medium">Leitura:</span> {interpretation}
+        </p>
+      )}
+    </div>
+  );
+}
