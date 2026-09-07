@@ -87,6 +87,19 @@ function CalendarPage() {
     : 0;
   const today = todayISO();
 
+  const next7 = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const key = addDays(today, i);
+      const d = byDay.get(key);
+      return {
+        key,
+        toReceive: (d?.toReceive ?? 0) + (d?.overdueReceive ?? 0),
+        toPay: (d?.toPay ?? 0) + (d?.overduePay ?? 0),
+      };
+    });
+  }, [byDay, today]);
+
+
   return (
     <AppLayout
       title="Calendário Financeiro"
