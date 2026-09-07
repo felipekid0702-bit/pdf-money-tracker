@@ -147,6 +147,8 @@ function JobCard({ job }: { job: ImportJob }) {
             Total do PDF confere com o total calculado ({formatBRL(r.pdfTotal)}).
           </p>
         )}
+        <RejectedList items={r.rejectedItems} divergence={r.divergence} />
+
       </div>
     </SectionCard>
   );
