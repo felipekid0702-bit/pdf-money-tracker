@@ -5,6 +5,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { SectionCard } from "@/components/StatCard";
 import { useImportQueue, type ImportJob } from "@/lib/import-context";
 import { formatBRL } from "@/lib/finance";
+import type { RejectedRecord } from "@/lib/pdf-parser";
 
 export const Route = createFileRoute("/importacao")({
   head: () => ({
@@ -151,6 +152,75 @@ function JobCard({ job }: { job: ImportJob }) {
 
       </div>
     </SectionCard>
+  );
+}
+
+function RejectedList({
+  items,
+  divergence,
+}: {
+  items: RejectedRecord[];
+  divergence: number | null;
+}) {
+  if (!items.length) return null;
+  const soma = items.reduce((s, i) => s + (i.amount ?? 0), 0);
+  const naoExplicado =
+    divergence === null ? null : Number((Math.abs(divergence) - soma).toFixed(2));
+
+  return (
+    <div className="rounded-md border border-border">
+      <div className="border-b border-border bg-muted/40 px-3 py-2 text-sm font-semibold">
+        Registros responsáveis pela divergência ({items.length})
+      </div>
+      <div className="max-h-80 overflow-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="sticky top-0 bg-card">
+            <tr className="text-muted-foreground">
+              <th className="px-3 py-2 font-medium">Pág.</th>
+              <th className="px-3 py-2 font-medium">Motivo</th>
+              <th className="px-3 py-2 font-medium">Cliente / Fornecedor</th>
+              <th className="px-3 py-2 font-medium">Documento</th>
+              <th className="px-3 py-2 font-medium">Vencimento</th>
+              <th className="px-3 py-2 text-right font-medium">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((i, idx) => (
+              <tr key={idx} className="border-t border-border/60 align-top">
+                <td className="px-3 py-2">{i.page || "—"}</td>
+                <td className="px-3 py-2">
+                  {i.reason}
+                  <div className="mt-0.5 max-w-md truncate text-muted-foreground" title={i.text}>
+                    {i.text}
+                  </div>
+                </td>
+                <td className="px-3 py-2">{i.counterparty ?? "—"}</td>
+                <td className="px-3 py-2">{i.document ?? "—"}</td>
+                <td className="px-3 py-2">
+                  {i.due_date ? i.due_date.split("-").reverse().join("/") : "—"}
+                </td>
+                <td className="num px-3 py-2 text-right">
+                  {i.amount === null ? "—" : formatBRL(i.amount)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+        Soma das linhas descartadas: <strong>{formatBRL(soma)}</strong>
+        {naoExplicado !== null && Math.abs(naoExplicado) >= 0.01 && (
+          <>
+            {" "}
+            — ainda restam {formatBRL(naoExplicado)} de diferença sem explicação nestas
+            linhas.
+          </>
+        )}
+        {naoExplicado !== null && Math.abs(naoExplicado) < 0.01 && (
+          <> — explica integralmente a divergência do PDF.</>
+        )}
+      </div>
+    </div>
   );
 }
 
