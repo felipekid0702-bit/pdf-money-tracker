@@ -19,6 +19,16 @@ export interface ParsedRecord {
   unique_key: string;
 }
 
+export interface RejectedRecord {
+  page: number;
+  reason: string;
+  text: string;
+  amount: number | null;
+  counterparty: string | null;
+  document: string | null;
+  due_date: string | null;
+}
+
 export interface ParseResult {
   type: MovementType;
   records: ParsedRecord[];
@@ -27,6 +37,8 @@ export interface ParseResult {
   found: number;
   /** linhas descartadas: duplicadas no próprio arquivo ou inválidas */
   rejected: number;
+  /** detalhe de cada linha descartada, para explicar divergência de totais */
+  rejectedItems: RejectedRecord[];
 }
 
 interface Item {
@@ -108,6 +120,9 @@ export async function parseBlingPdf(
   let histX: number | null = null;
   let pdfTotal: number | null = null;
   const records: ParsedRecord[] = [];
+  const recordPage = new Map<ParsedRecord, number>();
+  const recordText = new Map<ParsedRecord, string>();
+  const rejectedItems: RejectedRecord[] = [];
 
   for (let p = 1; p <= doc.numPages; p++) {
     onProgress?.(p, doc.numPages);
@@ -179,6 +194,17 @@ export async function parseBlingPdf(
       });
 
       if (!dateIdx.length || valueIdx === -1 || valueIdx < dateIdx[0]!) {
+        if (valueIdx !== -1 && !dateIdx.length) {
+          rejectedItems.push({
+            page: p,
+            reason: "Linha com valor mas sem data de vencimento reconhecida",
+            text: joined,
+            amount: toNumber(texts[valueIdx]!),
+            counterparty: null,
+            document: null,
+            due_date: null,
+          });
+        }
         leftovers.push(line);
         continue;
       }
@@ -232,6 +258,8 @@ export async function parseBlingPdf(
         source_file: file.name,
         unique_key: "",
       };
+      recordPage.set(rec, p);
+      recordText.set(rec, joined);
       pageRows.push({ rec, y: line[0]!.y });
     }
 
@@ -274,8 +302,26 @@ export async function parseBlingPdf(
   // drop duplicates inside the same file and rows without value/vencimento
   const seen = new Set<string>();
   const unique = records.filter((r) => {
-    if (!r.due_date || !(r.original_amount > 0)) return false;
-    if (seen.has(r.unique_key)) return false;
+    const base = {
+      page: recordPage.get(r) ?? 0,
+      text: recordText.get(r) ?? "",
+      amount: r.original_amount,
+      counterparty: r.counterparty,
+      document: r.document,
+      due_date: r.due_date,
+    };
+    if (!r.due_date) {
+      rejectedItems.push({ ...base, reason: "Sem data de vencimento" });
+      return false;
+    }
+    if (!(r.original_amount > 0)) {
+      rejectedItems.push({ ...base, reason: "Valor ausente ou igual a zero" });
+      return false;
+    }
+    if (seen.has(r.unique_key)) {
+      rejectedItems.push({ ...base, reason: "Duplicado dentro do próprio arquivo" });
+      return false;
+    }
     seen.add(r.unique_key);
     return true;
   });
@@ -286,5 +332,6 @@ export async function parseBlingPdf(
     pdfTotal,
     found: records.length,
     rejected: records.length - unique.length,
+    rejectedItems,
   };
 }
