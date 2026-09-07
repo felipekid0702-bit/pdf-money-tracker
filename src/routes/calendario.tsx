@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { EmptyState, StatCard } from "@/components/StatCard";
 import { useMovements } from "@/hooks/useMovements";
 import { formatBRL, formatDate, todayISO } from "@/lib/finance";
-import { finStatusLabel, openOf, paidOf, summarizeByDay } from "@/lib/analytics";
+import { addDays, finStatusLabel, openOf, paidOf, summarizeByDay } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/calendario")({
