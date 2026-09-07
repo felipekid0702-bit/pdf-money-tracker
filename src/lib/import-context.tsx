@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { parseBlingPdf } from "./pdf-parser";
+import { parseBlingPdf, type RejectedRecord } from "./pdf-parser";
 import { importRecords, type ImportSummary } from "./data";
 import type { MovementType } from "./finance";
 
@@ -14,7 +14,11 @@ export interface ImportJob {
   phase: JobPhase;
   progress: number; // 0..1
   detail: string;
-  summary?: ImportSummary & { type: MovementType; warning?: string };
+  summary?: ImportSummary & {
+    type: MovementType;
+    warning?: string;
+    rejectedItems: RejectedRecord[];
+  };
   error?: string;
 }
 
@@ -94,6 +98,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
             summary: {
               ...summary,
               type: parsed.type,
+              rejectedItems: parsed.rejectedItems,
               ...(parsed.type !== expected
                 ? {
                     warning: `O arquivo foi identificado como ${
