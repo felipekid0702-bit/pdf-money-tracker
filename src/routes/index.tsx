@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 import {
-  Area,
   Bar,
   BarChart,
   CartesianGrid,
@@ -822,4 +821,3 @@ function compact(v: number) {
   return new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(v);
 }
 
-export { Area };
