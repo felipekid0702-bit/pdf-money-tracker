@@ -135,11 +135,47 @@ function CalendarPage() {
             <StatCard label="Pagar vencido" value={formatBRL(monthTotals.overdueP)} tone="danger" />
           </div>
 
+          <section className="rounded-lg border border-border bg-card">
+            <header className="border-b border-border px-4 py-3">
+              <h2 className="text-sm font-semibold">Próximos 7 dias</h2>
+              <p className="text-xs text-muted-foreground">
+                Títulos em aberto com vencimento de hoje até {formatDate(addDays(today, 6))}
+              </p>
+            </header>
+            <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 lg:grid-cols-7">
+              {next7.map((n) => (
+                <button
+                  key={n.key}
+                  onClick={() => setSelected(n.key)}
+                  className={cn(
+                    "bg-card p-3 text-left transition hover:bg-muted/60",
+                    selected === n.key && "ring-2 ring-inset ring-primary",
+                  )}
+                >
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {WEEK[new Date(`${n.key}T12:00:00`).getDay()]} · {n.key.slice(8, 10)}/{n.key.slice(5, 7)}
+                  </div>
+                  <div className="num mt-1 text-xs text-success">+{formatBRL(n.toReceive)}</div>
+                  <div className="num text-xs text-destructive">-{formatBRL(n.toPay)}</div>
+                  <div
+                    className={cn(
+                      "num mt-1 border-t border-border pt-1 text-xs font-semibold",
+                      n.toReceive - n.toPay >= 0 ? "text-success" : "text-destructive",
+                    )}
+                  >
+                    {formatBRL(n.toReceive - n.toPay)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+
           <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
             <Legend className="bg-success" label="Recebido / Pago" />
             <Legend className="bg-warning" label="Em aberto" />
             <Legend className="bg-destructive" label="Vencido" />
           </div>
+
 
           <div className="overflow-hidden rounded-lg border border-border bg-card">
             <div className="grid grid-cols-7 border-b border-border bg-muted/50">
