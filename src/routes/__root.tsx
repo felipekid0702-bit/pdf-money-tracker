@@ -10,11 +10,11 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { PeriodProvider } from "../lib/period";
-import { ImportProvider } from "../lib/import-context";
-import { ImportStatusBar } from "../components/ImportStatusBar";
-import { useRealtimeMovements } from "../hooks/useRealtimeMovements";
-import { reportLovableError } from "../lib/lovable-error-reporting";
+import { PeriodProvider } from "@/lib/period";
+import { ImportProvider } from "@/lib/import-context";
+import { ImportStatusBar } from "@/components/ImportStatusBar";
+import { useRealtimeMovements } from "@/hooks/useRealtimeMovements";
+import { reportLovableError } from "@/lib/lovable-error-reporting";
 
 function NotFoundComponent() {
   return (
