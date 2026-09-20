@@ -888,3 +888,7 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## Deploy
+
+O projeto usa o comando `npm run build` e está preparado para deploy pela Vercel.
