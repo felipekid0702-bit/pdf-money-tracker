@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import logo from "@/assets/fp-logo.png.asset.json";
+import logo from "@/assets/FP Logo - Fundo Branco.png";
 import { NyansapoMark } from "@/components/NyansapoMark";
 
 const NAV = [
@@ -106,7 +106,7 @@ function Brand() {
   return (
     <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
       <img
-        src={logo.url}
+        src={logo}
         alt="FP Solução em Altura"
         className="size-11 shrink-0 rounded-md bg-card object-contain p-1"
       />

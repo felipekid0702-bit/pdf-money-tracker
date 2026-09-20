@@ -63,7 +63,7 @@ function Configuracoes() {
             <NyansapoMark variant="large" className="size-[140px] text-black" />
             <div className="max-w-xs">
               <p className="text-xl italic leading-snug text-foreground/90">
-                “A chuva bate na folha, mas não a quebra; cocê deve agir como se fosse impossível falhar.”
+                “A chuva bate na folha, mas não a quebra; você deve agir como se fosse impossível falhar.”
               </p>
               <p className="mt-2 text-sm text-muted-foreground">Ditado Ashanti</p>
             </div>
