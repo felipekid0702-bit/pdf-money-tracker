@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Trash2 } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { SectionCard } from "@/components/StatCard";
+import { NyansapoMark } from "@/components/NyansapoMark";
 import { clearAllData } from "@/lib/data";
 import { useMovements } from "@/hooks/useMovements";
 
@@ -57,6 +58,18 @@ function Configuracoes() {
       subtitle="FP SOLUÇÃO EM ALTURA LTDA — CNPJ 58.348.102/0001-82"
     >
       <div className="space-y-5">
+        <div className="flex min-h-[260px] items-center justify-center py-6">
+          <div className="flex items-center gap-5 text-foreground/80">
+            <NyansapoMark variant="large" className="size-[140px] text-black" />
+            <div className="max-w-xs">
+              <p className="text-xl italic leading-snug text-foreground/90">
+                “A chuva bate na folha, mas não a quebra; cocê deve agir como se fosse impossível falhar.”
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">Ditado Ashanti</p>
+            </div>
+          </div>
+        </div>
+
         <SectionCard
           title="Limpar dados financeiros"
           description={`${data?.length ?? 0} movimentos armazenados atualmente`}

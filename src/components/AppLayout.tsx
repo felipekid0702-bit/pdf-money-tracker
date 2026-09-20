@@ -12,6 +12,7 @@ import {
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import logo from "@/assets/fp-logo.png.asset.json";
+import { NyansapoMark } from "@/components/NyansapoMark";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -92,7 +93,10 @@ export function AppLayout({
           </div>
           {actions}
         </header>
-        <main className={cn("px-4 py-6 sm:px-6")}>{children}</main>
+        <main className={cn("px-4 py-6 sm:px-6")}>
+          {children}
+          <SignatureBlock />
+        </main>
       </div>
     </div>
   );
@@ -121,7 +125,23 @@ function Brand() {
 function Footer() {
   return (
     <div className="mt-auto border-t border-sidebar-border px-5 py-4 text-[11px] text-sidebar-foreground/50">
-      CNPJ 58.348.102/0001-82
+      <div className="flex flex-col items-center gap-2">
+        <p className="text-center leading-snug text-sidebar-foreground/60">
+          Desenvolvido por Luiz Felipe Ferreira em 09/2026
+        </p>
+        <NyansapoMark className="text-sidebar-foreground/80" />
+      </div>
     </div>
+  );
+}
+
+function SignatureBlock() {
+  return (
+    <footer className="mt-12 flex flex-col items-center gap-2 border-t border-border py-6 text-center">
+      <p className="max-w-xs text-xs leading-snug text-muted-foreground">
+        Desenvolvido por Luiz Felipe Ferreira em 09/2026
+      </p>
+      <NyansapoMark className="text-foreground" />
+    </footer>
   );
 }
