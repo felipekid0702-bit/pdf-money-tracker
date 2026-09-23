@@ -105,11 +105,7 @@ export function AppLayout({
 function Brand() {
   return (
     <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
-      <img
-        src={logo}
-        alt="FP Solução em Altura"
-        className="size-11 shrink-0 rounded-md bg-card object-contain p-1"
-      />
+      <LogoMark />
       <div className="min-w-0">
         <div className="text-base font-semibold tracking-tight text-sidebar-accent-foreground">
           FP Financeiro
@@ -118,6 +114,36 @@ function Brand() {
           FP SOLUÇÃO EM ALTURA LTDA
         </div>
       </div>
+    </div>
+  );
+}
+
+function LogoMark() {
+  return (
+    <div
+      className="flex size-11 shrink-0 items-center justify-center rounded-md bg-card p-1"
+      role="img"
+      aria-label="FP Solução em Altura"
+    >
+      <img
+        src={logo}
+        alt=""
+        className="size-full object-contain"
+        onError={(event) => {
+          event.currentTarget.style.display = "none";
+          event.currentTarget.nextElementSibling?.removeAttribute("hidden");
+        }}
+      />
+      <svg
+        hidden
+        viewBox="0 0 40 40"
+        aria-hidden="true"
+        className="size-full"
+      >
+        <rect width="40" height="40" rx="7" fill="#719d6d" />
+        <path d="M11 9h18v6H17v5h9v6h-9v5h-6V9Z" fill="#f6efdf" />
+        <path d="M17 20h8v6h-8v-6Z" fill="#719d6d" />
+      </svg>
     </div>
   );
 }
