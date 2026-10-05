@@ -2,15 +2,16 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-/** Mantém a base local sincronizada em tempo real com financial_movements. */
+/** Mantém movimentos e ações de envio sincronizados em tempo real. */
 export function useRealtimeMovements() {
   const qc = useQueryClient();
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let movementsTimer: ReturnType<typeof setTimeout> | null = null;
+    let eventsTimer: ReturnType<typeof setTimeout> | null = null;
     const invalidate = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
+      if (movementsTimer) clearTimeout(movementsTimer);
+      movementsTimer = setTimeout(() => {
         void qc.invalidateQueries({ queryKey: ["movements"] });
       }, 800);
     };
@@ -24,9 +25,25 @@ export function useRealtimeMovements() {
       )
       .subscribe();
 
+    const eventsChannel = supabase
+      .channel("receivable_email_events_stream")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "receivable_email_events" },
+        () => {
+          if (eventsTimer) clearTimeout(eventsTimer);
+          eventsTimer = setTimeout(() => {
+            void qc.invalidateQueries({ queryKey: ["receivable-email-events"] });
+          }, 800);
+        },
+      )
+      .subscribe();
+
     return () => {
-      if (timer) clearTimeout(timer);
+      if (movementsTimer) clearTimeout(movementsTimer);
+      if (eventsTimer) clearTimeout(eventsTimer);
       void supabase.removeChannel(channel);
+      void supabase.removeChannel(eventsChannel);
     };
   }, [qc]);
 }

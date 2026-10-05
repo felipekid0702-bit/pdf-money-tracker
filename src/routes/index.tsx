@@ -32,6 +32,7 @@ import {
   namedProjections,
   openPosition,
   periodKpis,
+  projectionForRange,
   rankParties,
   sideDistribution,
   statusDistribution,
@@ -76,8 +77,13 @@ function Dashboard() {
   const today = todayISO();
   const tomorrow = useMemo(() => addDays(today, 1), [today]);
 
-  /* ---------- posição global (independe do filtro) ---------- */
-  const pos = useMemo(() => openPosition(all, today), [all, today]);
+  /* ---------- indicadores financeiros do período selecionado ---------- */
+  const pos = useMemo(() => openPosition(rows, today), [rows, today]);
+  const allPosition = useMemo(() => openPosition(all, today), [all, today]);
+  const selectedProjection = useMemo(
+    () => projectionForRange(rows, { from: null, to: null }, label, today),
+    [rows, label, today],
+  );
   const proj = useMemo(
     () =>
       namedProjections(
@@ -92,7 +98,6 @@ function Dashboard() {
       ),
     [all, today],
   );
-  const p7 = proj[0]!;
   const alerts = useMemo(() => attentionPoints(all, today), [all, today]);
 
   /* ---------- blocos de dia ---------- */
@@ -135,10 +140,7 @@ function Dashboard() {
 
   /* ---------- período filtrado ---------- */
   const k = useMemo(() => periodKpis(rows, today), [rows, today]);
-  const series = useMemo(
-    () => timeSeries(rows, granularityFor(range, rows)),
-    [rows, range],
-  );
+  const series = useMemo(() => timeSeries(rows, granularityFor(range, rows)), [rows, range]);
   const flow = useMemo(() => {
     let acc = 0;
     return series.map((p) => {
@@ -167,11 +169,9 @@ function Dashboard() {
   const margem = k.receita.original > 0 ? resultado / k.receita.original : null;
   const ticketR = k.receita.count > 0 ? k.receita.original / k.receita.count : null;
   const ticketP = k.despesa.count > 0 ? k.despesa.original / k.despesa.count : null;
-  const inadimplencia =
-    k.receita.original > 0 ? k.receita.overdue / k.receita.original : null;
+  const inadimplencia = k.receita.original > 0 ? k.receita.overdue / k.receita.original : null;
   const relacao = k.despesa.settled > 0 ? k.receita.settled / k.despesa.settled : null;
-  const ciclo =
-    pmr.value !== null && pmp.value !== null ? pmr.value - pmp.value : null;
+  const ciclo = pmr.value !== null && pmp.value !== null ? pmr.value - pmp.value : null;
   const concCli = topShare(clientes, 5);
   const concForn = topShare(fornecedores, 5);
   const saldoProjetado = pos.net;
@@ -233,15 +233,15 @@ function Dashboard() {
                 tone="danger"
               />
               <StatCard
-                label="Próximos 7 dias"
-                value={`${formatBRL(p7.inflow)} / ${formatBRL(p7.outflow)}`}
-                hint="Recebimentos / pagamentos previstos"
+                label="Previsão do período"
+                value={`${formatBRL(selectedProjection.inflow)} / ${formatBRL(selectedProjection.outflow)}`}
+                hint="Recebimentos / pagamentos previstos no período selecionado"
               />
               <StatCard
-                label="Saldo dos próximos 7 dias"
-                value={formatBRL(p7.net)}
-                hint={`${p7.count} títulos em aberto`}
-                tone={p7.net >= 0 ? "success" : "danger"}
+                label="Saldo do período"
+                value={formatBRL(selectedProjection.net)}
+                hint={`${selectedProjection.count} títulos em aberto no período`}
+                tone={selectedProjection.net >= 0 ? "success" : "danger"}
               />
             </div>
           </section>
@@ -268,14 +268,39 @@ function Dashboard() {
                     <YAxis fontSize={11} width={70} tickFormatter={compact} />
                     <Tooltip formatter={(v: number) => formatBRL(v)} />
                     <Legend />
-                    <Bar dataKey="entradas" name="Recebimentos" fill={CHART.in} radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="saidas" name="Pagamentos" fill={CHART.out} radius={[3, 3, 0, 0]} />
-                    <Line type="monotone" dataKey="saldo" name="Saldo do dia" stroke={CHART.net} strokeWidth={2} dot />
+                    <Bar
+                      dataKey="entradas"
+                      name="Recebimentos"
+                      fill={CHART.in}
+                      radius={[3, 3, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="saidas"
+                      name="Pagamentos"
+                      fill={CHART.out}
+                      radius={[3, 3, 0, 0]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="saldo"
+                      name="Saldo do dia"
+                      stroke={CHART.net}
+                      strokeWidth={2}
+                      dot
+                    />
                   </ComposedChart>
                 </ChartBox>
                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  <StatCard label="Entradas da semana" value={formatBRL(weekTotals.entradas)} tone="success" />
-                  <StatCard label="Saídas da semana" value={formatBRL(weekTotals.saidas)} tone="danger" />
+                  <StatCard
+                    label="Entradas da semana"
+                    value={formatBRL(weekTotals.entradas)}
+                    tone="success"
+                  />
+                  <StatCard
+                    label="Saídas da semana"
+                    value={formatBRL(weekTotals.saidas)}
+                    tone="danger"
+                  />
                   <StatCard
                     label="Saldo da semana"
                     value={formatBRL(weekTotals.saldo)}
@@ -303,7 +328,14 @@ function Dashboard() {
                   <Legend />
                   <Bar dataKey="entradas" name="Entradas" fill={CHART.in} radius={[3, 3, 0, 0]} />
                   <Bar dataKey="saidas" name="Saídas" fill={CHART.out} radius={[3, 3, 0, 0]} />
-                  <Line type="monotone" dataKey="acumulado" name="Saldo acumulado" stroke={CHART.net} strokeWidth={2} dot={false} />
+                  <Line
+                    type="monotone"
+                    dataKey="acumulado"
+                    name="Saldo acumulado"
+                    stroke={CHART.net}
+                    strokeWidth={2}
+                    dot={false}
+                  />
                 </ComposedChart>
               </ChartBox>
             )}
@@ -324,7 +356,14 @@ function Dashboard() {
                   <Legend />
                   <Bar dataKey="receber" name="A receber" fill={CHART.in} radius={[3, 3, 0, 0]} />
                   <Bar dataKey="pagar" name="A pagar" fill={CHART.out} radius={[3, 3, 0, 0]} />
-                  <Line type="monotone" dataKey="acumulado" name="Acumulado" stroke={CHART.net} strokeWidth={2} dot={false} />
+                  <Line
+                    type="monotone"
+                    dataKey="acumulado"
+                    name="Acumulado"
+                    stroke={CHART.net}
+                    strokeWidth={2}
+                    dot={false}
+                  />
                 </ComposedChart>
               </ChartBox>
             </SectionCard>
@@ -343,9 +382,7 @@ function Dashboard() {
             description="Regras objetivas aplicadas sobre os títulos importados"
           >
             {alerts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Nenhum ponto de atenção identificado.
-              </p>
+              <p className="text-sm text-muted-foreground">Nenhum ponto de atenção identificado.</p>
             ) : (
               <ul className="space-y-2">
                 {alerts.map((a, i) => (
@@ -371,10 +408,21 @@ function Dashboard() {
           <div className="grid gap-4 xl:grid-cols-2">
             <SectionCard title="Recebíveis" description="Posição total em aberto">
               <div className="grid gap-3 sm:grid-cols-2">
-                <StatCard label="Total em aberto" value={formatBRL(pos.receivableTotal)} tone="info" />
-                <StatCard label="Vence hoje" value={formatBRL(vencendo(distReceb, "Vence hoje"))} tone="warning" />
+                <StatCard
+                  label="Total em aberto"
+                  value={formatBRL(allPosition.receivableTotal)}
+                  tone="info"
+                />
+                <StatCard
+                  label="Vence hoje"
+                  value={formatBRL(vencendo(distReceb, "Vence hoje"))}
+                  tone="warning"
+                />
                 <StatCard label="Até 7 dias" value={formatBRL(vencendo(distReceb, "Até 7 dias"))} />
-                <StatCard label="8 a 30 dias" value={formatBRL(vencendo(distReceb, "8 a 30 dias"))} />
+                <StatCard
+                  label="8 a 30 dias"
+                  value={formatBRL(vencendo(distReceb, "8 a 30 dias"))}
+                />
                 <StatCard
                   label="Ticket médio"
                   value={ticketR === null ? "—" : formatBRL(ticketR)}
@@ -392,8 +440,16 @@ function Dashboard() {
 
             <SectionCard title="Pagamentos" description="Posição total em aberto">
               <div className="grid gap-3 sm:grid-cols-2">
-                <StatCard label="Total em aberto" value={formatBRL(pos.payableTotal)} tone="warning" />
-                <StatCard label="Vence hoje" value={formatBRL(vencendo(distPag, "Vence hoje"))} tone="warning" />
+                <StatCard
+                  label="Total em aberto"
+                  value={formatBRL(allPosition.payableTotal)}
+                  tone="warning"
+                />
+                <StatCard
+                  label="Vence hoje"
+                  value={formatBRL(vencendo(distPag, "Vence hoje"))}
+                  tone="warning"
+                />
                 <StatCard label="Até 7 dias" value={formatBRL(vencendo(distPag, "Até 7 dias"))} />
                 <StatCard label="8 a 30 dias" value={formatBRL(vencendo(distPag, "8 a 30 dias"))} />
                 <StatCard
@@ -414,10 +470,16 @@ function Dashboard() {
 
           {/* 13. CLIENTES E FORNECEDORES */}
           <div className="grid gap-4 xl:grid-cols-2">
-            <SectionCard title="Top 10 clientes" description={`Participação no faturamento · ${label}`}>
+            <SectionCard
+              title="Top 10 clientes"
+              description={`Participação no faturamento · ${label}`}
+            >
               <PartyBars list={clientes} color={CHART.in} />
             </SectionCard>
-            <SectionCard title="Top 10 fornecedores" description={`Participação nas despesas · ${label}`}>
+            <SectionCard
+              title="Top 10 fornecedores"
+              description={`Participação nas despesas · ${label}`}
+            >
               <PartyBars list={fornecedores} color={CHART.out} />
             </SectionCard>
           </div>
@@ -454,13 +516,22 @@ function Dashboard() {
               </ChartBox>
             </SectionCard>
 
-            <SectionCard title="Distribuição por situação" description={`Realizado, em aberto e vencido · ${label}`}>
+            <SectionCard
+              title="Distribuição por situação"
+              description={`Realizado, em aberto e vencido · ${label}`}
+            >
               {statusData.every((d) => d.value === 0) ? (
                 <Insufficient />
               ) : (
                 <ChartBox>
                   <PieChart>
-                    <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={95} label={false}>
+                    <Pie
+                      data={statusData}
+                      dataKey="value"
+                      nameKey="name"
+                      outerRadius={95}
+                      label={false}
+                    >
                       {statusData.map((d) => (
                         <Cell key={d.name} fill={d.fill} />
                       ))}
@@ -507,7 +578,9 @@ function Dashboard() {
                 period={label}
                 explanation="Diferença entre o faturado e as despesas do período."
                 formula="Receita − Despesa"
-                interpretation={resultado >= 0 ? "Resultado positivo no período." : "Despesas superam a receita."}
+                interpretation={
+                  resultado >= 0 ? "Resultado positivo no período." : "Despesas superam a receita."
+                }
                 tone={resultado >= 0 ? "success" : "danger"}
               />
               <KpiCard
@@ -517,7 +590,9 @@ function Dashboard() {
                 period={label}
                 explanation="Parcela da receita que sobra após as despesas."
                 formula="(Receita − Despesa) ÷ Receita"
-                interpretation={margem !== null && margem >= 0 ? "Quanto maior, melhor." : "Margem negativa."}
+                interpretation={
+                  margem !== null && margem >= 0 ? "Quanto maior, melhor." : "Margem negativa."
+                }
                 insufficient={margem === null}
                 tone={margem !== null && margem >= 0 ? "success" : "danger"}
               />
@@ -626,9 +701,7 @@ function SectionTitle({ title, hint }: { title: string; hint?: string }) {
 }
 
 function Insufficient() {
-  return (
-    <p className="text-sm text-muted-foreground">Dados insuficientes para cálculo.</p>
-  );
+  return <p className="text-sm text-muted-foreground">Dados insuficientes para cálculo.</p>;
 }
 
 function DayCard({ title, date, b }: { title: string; date: string; b: DayBlock }) {
@@ -640,10 +713,30 @@ function DayCard({ title, date, b }: { title: string; date: string; b: DayBlock 
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2">
-            <StatCard label="A receber" value={formatBRL(b.toReceive)} hint={`${b.toReceiveCount} títulos`} tone="info" />
-            <StatCard label="A pagar" value={formatBRL(b.toPay)} hint={`${b.toPayCount} títulos`} tone="warning" />
-            <StatCard label="Recebido" value={formatBRL(b.received)} hint={`${b.receivedCount} títulos`} tone="success" />
-            <StatCard label="Pago" value={formatBRL(b.paid)} hint={`${b.paidCount} títulos`} tone="danger" />
+            <StatCard
+              label="A receber"
+              value={formatBRL(b.toReceive)}
+              hint={`${b.toReceiveCount} títulos`}
+              tone="info"
+            />
+            <StatCard
+              label="A pagar"
+              value={formatBRL(b.toPay)}
+              hint={`${b.toPayCount} títulos`}
+              tone="warning"
+            />
+            <StatCard
+              label="Recebido"
+              value={formatBRL(b.received)}
+              hint={`${b.receivedCount} títulos`}
+              tone="success"
+            />
+            <StatCard
+              label="Pago"
+              value={formatBRL(b.paid)}
+              hint={`${b.paidCount} títulos`}
+              tone="danger"
+            />
             <StatCard
               label="Resultado do dia"
               value={formatBRL(b.net)}
@@ -693,7 +786,13 @@ function DistBars({ data }: { data: { name: string; value: number; tone: string 
   const total = data.reduce((a, d) => a + d.value, 0);
   if (total <= 0) return <Insufficient />;
   const color = (t: string) =>
-    t === "ok" ? "bg-success" : t === "bad" ? "bg-destructive" : t === "warn" ? "bg-warning" : "bg-info";
+    t === "ok"
+      ? "bg-success"
+      : t === "bad"
+        ? "bg-destructive"
+        : t === "warn"
+          ? "bg-warning"
+          : "bg-info";
   return (
     <div className="space-y-2">
       {data.map((d) => (
@@ -801,13 +900,7 @@ export function FlowTable({
   );
 }
 
-function ChartBox({
-  children,
-  className,
-}: {
-  children: React.ReactElement;
-  className?: string;
-}) {
+function ChartBox({ children, className }: { children: React.ReactElement; className?: string }) {
   return (
     <div className={className ?? "h-64 w-full"}>
       <ResponsiveContainer width="100%" height="100%">
@@ -820,4 +913,3 @@ function ChartBox({
 function compact(v: number) {
   return new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(v);
 }
-

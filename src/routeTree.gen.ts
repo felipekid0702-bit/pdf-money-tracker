@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AcoesDeCobrancaRouteImport } from './routes/acoes-de-cobranca'
 import { Route as AnalisesRouteImport } from './routes/analises'
 import { Route as CalendarioRouteImport } from './routes/calendario'
 import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
@@ -20,6 +21,11 @@ import { Route as ImportacaoRouteImport } from './routes/importacao'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AcoesDeCobrancaRoute = AcoesDeCobrancaRouteImport.update({
+  id: '/acoes-de-cobranca',
+  path: '/acoes-de-cobranca',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalisesRoute = AnalisesRouteImport.update({
@@ -55,6 +61,7 @@ const ImportacaoRoute = ImportacaoRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/acoes-de-cobranca': typeof AcoesDeCobrancaRoute
   '/analises': typeof AnalisesRoute
   '/calendario': typeof CalendarioRoute
   '/configuracoes': typeof ConfiguracoesRoute
@@ -64,6 +71,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/acoes-de-cobranca': typeof AcoesDeCobrancaRoute
   '/analises': typeof AnalisesRoute
   '/calendario': typeof CalendarioRoute
   '/configuracoes': typeof ConfiguracoesRoute
@@ -74,6 +82,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/acoes-de-cobranca': typeof AcoesDeCobrancaRoute
   '/analises': typeof AnalisesRoute
   '/calendario': typeof CalendarioRoute
   '/configuracoes': typeof ConfiguracoesRoute
@@ -85,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/acoes-de-cobranca'
     | '/analises'
     | '/calendario'
     | '/configuracoes'
@@ -94,6 +104,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/acoes-de-cobranca'
     | '/analises'
     | '/calendario'
     | '/configuracoes'
@@ -103,6 +114,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/acoes-de-cobranca'
     | '/analises'
     | '/calendario'
     | '/configuracoes'
@@ -113,6 +125,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AcoesDeCobrancaRoute: typeof AcoesDeCobrancaRoute
   AnalisesRoute: typeof AnalisesRoute
   CalendarioRoute: typeof CalendarioRoute
   ConfiguracoesRoute: typeof ConfiguracoesRoute
@@ -128,6 +141,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/acoes-de-cobranca': {
+      id: '/acoes-de-cobranca'
+      path: '/acoes-de-cobranca'
+      fullPath: '/acoes-de-cobranca'
+      preLoaderRoute: typeof AcoesDeCobrancaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analises': {
@@ -177,6 +197,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AcoesDeCobrancaRoute: AcoesDeCobrancaRoute,
   AnalisesRoute: AnalisesRoute,
   CalendarioRoute: CalendarioRoute,
   ConfiguracoesRoute: ConfiguracoesRoute,

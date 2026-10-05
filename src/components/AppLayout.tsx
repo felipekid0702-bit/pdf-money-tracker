@@ -8,6 +8,7 @@ import {
   Settings,
   Menu,
   CalendarDays,
+  Send,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ import { NyansapoMark } from "@/components/NyansapoMark";
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/contas-a-receber", label: "Contas a Receber", icon: ArrowDownCircle },
+  { to: "/acoes-de-cobranca", label: "Ações de Cobrança", icon: Send },
   { to: "/contas-a-pagar", label: "Contas a Pagar", icon: ArrowUpCircle },
   { to: "/calendario", label: "Calendário", icon: CalendarDays },
   { to: "/analises", label: "Análises", icon: BarChart3 },
@@ -131,14 +133,13 @@ function LogoMark() {
         className="size-full object-contain"
         onError={(event) => {
           event.currentTarget.style.display = "none";
-          event.currentTarget.nextElementSibling?.removeAttribute("hidden");
+          event.currentTarget.nextElementSibling?.classList.remove("hidden");
         }}
       />
       <svg
-        hidden
         viewBox="0 0 40 40"
         aria-hidden="true"
-        className="size-full"
+        className="hidden size-full"
       >
         <rect width="40" height="40" rx="7" fill="#719d6d" />
         <path d="M11 9h18v6H17v5h9v6h-9v5h-6V9Z" fill="#f6efdf" />

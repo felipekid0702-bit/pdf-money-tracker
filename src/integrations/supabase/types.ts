@@ -1,262 +1,292 @@
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[]
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
-  }
+    PostgrestVersion: "14.5";
+  };
   public: {
     Tables: {
       financial_movements: {
         Row: {
-          counterparty: string | null
-          counterparty_document: string | null
-          created_at: string
-          description: string | null
-          document: string | null
-          due_date: string | null
-          id: string
-          issue_date: string | null
-          open_amount: number
-          original_amount: number
-          paid_amount: number
-          payment_date: string | null
-          source: string
-          source_file: string | null
-          status: string
-          type: string
-          unique_key: string
-          updated_at: string
-        }
+          counterparty: string | null;
+          counterparty_document: string | null;
+          created_at: string;
+          description: string | null;
+          document: string | null;
+          due_date: string | null;
+          id: string;
+          issue_date: string | null;
+          open_amount: number;
+          original_amount: number;
+          paid_amount: number;
+          payment_date: string | null;
+          source: string;
+          source_file: string | null;
+          status: string;
+          type: string;
+          unique_key: string;
+          updated_at: string;
+        };
         Insert: {
-          counterparty?: string | null
-          counterparty_document?: string | null
-          created_at?: string
-          description?: string | null
-          document?: string | null
-          due_date?: string | null
-          id?: string
-          issue_date?: string | null
-          open_amount?: number
-          original_amount?: number
-          paid_amount?: number
-          payment_date?: string | null
-          source: string
-          source_file?: string | null
-          status: string
-          type: string
-          unique_key: string
-          updated_at?: string
-        }
+          counterparty?: string | null;
+          counterparty_document?: string | null;
+          created_at?: string;
+          description?: string | null;
+          document?: string | null;
+          due_date?: string | null;
+          id?: string;
+          issue_date?: string | null;
+          open_amount?: number;
+          original_amount?: number;
+          paid_amount?: number;
+          payment_date?: string | null;
+          source: string;
+          source_file?: string | null;
+          status: string;
+          type: string;
+          unique_key: string;
+          updated_at?: string;
+        };
         Update: {
-          counterparty?: string | null
-          counterparty_document?: string | null
-          created_at?: string
-          description?: string | null
-          document?: string | null
-          due_date?: string | null
-          id?: string
-          issue_date?: string | null
-          open_amount?: number
-          original_amount?: number
-          paid_amount?: number
-          payment_date?: string | null
-          source?: string
-          source_file?: string | null
-          status?: string
-          type?: string
-          unique_key?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
+          counterparty?: string | null;
+          counterparty_document?: string | null;
+          created_at?: string;
+          description?: string | null;
+          document?: string | null;
+          due_date?: string | null;
+          id?: string;
+          issue_date?: string | null;
+          open_amount?: number;
+          original_amount?: number;
+          paid_amount?: number;
+          payment_date?: string | null;
+          source?: string;
+          source_file?: string | null;
+          status?: string;
+          type?: string;
+          unique_key?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       import_batches: {
         Row: {
-          created_at: string
-          existing_count: number
-          file_name: string | null
-          found_count: number
-          id: string
-          new_count: number
-          open_amount: number
-          paid_amount: number
-          pdf_total: number | null
-          total_amount: number
-          type: string
-          updated_count: number
-        }
+          created_at: string;
+          existing_count: number;
+          file_name: string | null;
+          found_count: number;
+          id: string;
+          new_count: number;
+          open_amount: number;
+          paid_amount: number;
+          pdf_total: number | null;
+          total_amount: number;
+          type: string;
+          updated_count: number;
+        };
         Insert: {
-          created_at?: string
-          existing_count?: number
-          file_name?: string | null
-          found_count?: number
-          id?: string
-          new_count?: number
-          open_amount?: number
-          paid_amount?: number
-          pdf_total?: number | null
-          total_amount?: number
-          type: string
-          updated_count?: number
-        }
+          created_at?: string;
+          existing_count?: number;
+          file_name?: string | null;
+          found_count?: number;
+          id?: string;
+          new_count?: number;
+          open_amount?: number;
+          paid_amount?: number;
+          pdf_total?: number | null;
+          total_amount?: number;
+          type: string;
+          updated_count?: number;
+        };
         Update: {
-          created_at?: string
-          existing_count?: number
-          file_name?: string | null
-          found_count?: number
-          id?: string
-          new_count?: number
-          open_amount?: number
-          paid_amount?: number
-          pdf_total?: number | null
-          total_amount?: number
-          type?: string
-          updated_count?: number
-        }
-        Relationships: []
-      }
-    }
+          created_at?: string;
+          existing_count?: number;
+          file_name?: string | null;
+          found_count?: number;
+          id?: string;
+          new_count?: number;
+          open_amount?: number;
+          paid_amount?: number;
+          pdf_total?: number | null;
+          total_amount?: number;
+          type?: string;
+          updated_count?: number;
+        };
+        Relationships: [];
+      };
+      receivable_email_events: {
+        Row: {
+          action_type: "cobranca_vencido" | "aviso_vencimento" | "boleto_enviado";
+          event_key: string;
+          id: string;
+          aging_ranges: string[];
+          recipient_email: string | null;
+          reminder_days: number | null;
+          sent_at: string;
+          subject: string | null;
+          title_count: number;
+          title_documents: string[];
+          title_details: Json;
+        };
+        Insert: {
+          action_type: "cobranca_vencido" | "aviso_vencimento" | "boleto_enviado";
+          event_key: string;
+          id?: string;
+          aging_ranges?: string[];
+          recipient_email?: string | null;
+          reminder_days?: number | null;
+          sent_at: string;
+          subject?: string | null;
+          title_count: number;
+          title_documents?: string[];
+          title_details?: Json;
+        };
+        Update: {
+          action_type?: "cobranca_vencido" | "aviso_vencimento" | "boleto_enviado";
+          event_key?: string;
+          id?: string;
+          aging_ranges?: string[];
+          recipient_email?: string | null;
+          reminder_days?: number | null;
+          sent_at?: string;
+          subject?: string | null;
+          title_count?: number;
+          title_documents?: string[];
+          title_details?: Json;
+        };
+        Relationships: [];
+      };
+    };
     Views: {
-      [_ in never]: never
-    }
+      [_ in never]: never;
+    };
     Functions: {
-      [_ in never]: never
-    }
+      [_ in never]: never;
+    };
     Enums: {
-      [_ in never]: never
-    }
+      [_ in never]: never;
+    };
     CompositeTypes: {
-      [_ in never]: never
-    }
-  }
-}
+      [_ in never]: never;
+    };
+  };
+};
 
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">;
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">];
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
       DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
-      Row: infer R
+      Row: infer R;
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] & DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R;
       }
       ? R
       : never
-    : never
+    : never;
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
+      Insert: infer I;
     }
     ? I
     : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
     ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
+        Insert: infer I;
       }
       ? I
       : never
-    : never
+    : never;
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
+      Update: infer U;
     }
     ? U
     : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
     ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
+        Update: infer U;
       }
       ? U
       : never
-    : never
+    : never;
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
+    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
   EnumName extends (DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
     ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
+    : never;
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
+    keyof DefaultSchema["CompositeTypes"] | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
+    : never;
 
 export const Constants = {
   public: {
     Enums: {},
   },
-} as const
+} as const;

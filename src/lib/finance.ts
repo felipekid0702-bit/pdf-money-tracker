@@ -1,5 +1,18 @@
 export type MovementType = "RECEITA" | "DESPESA";
 
+export interface ReceivableEmailEvent {
+  id: string;
+  sent_at: string;
+  action_type: "cobranca_vencido" | "aviso_vencimento" | "boleto_enviado";
+  recipient_email: string | null;
+  subject: string | null;
+  title_count: number;
+  title_documents: string[];
+  title_details: unknown;
+  reminder_days: number | null;
+  aging_ranges: string[];
+}
+
 export interface Movement {
   id: string;
   type: MovementType;
@@ -26,12 +39,7 @@ export const RECEITA_STATUS = [
   "PARCIALMENTE_RECEBIDO",
 ] as const;
 
-export const DESPESA_STATUS = [
-  "PAGO",
-  "EM_ABERTO",
-  "ATRASADO",
-  "PARCIALMENTE_PAGO",
-] as const;
+export const DESPESA_STATUS = ["PAGO", "EM_ABERTO", "ATRASADO", "PARCIALMENTE_PAGO"] as const;
 
 export const STATUS_LABEL: Record<string, string> = {
   RECEBIDO: "Recebido",
@@ -42,10 +50,8 @@ export const STATUS_LABEL: Record<string, string> = {
   PARCIALMENTE_PAGO: "Parcial",
 };
 
-export const isSettled = (s: string) =>
-  s === "RECEBIDO" || s === "PAGO";
-export const isPartial = (s: string) =>
-  s === "PARCIALMENTE_RECEBIDO" || s === "PARCIALMENTE_PAGO";
+export const isSettled = (s: string) => s === "RECEBIDO" || s === "PAGO";
+export const isPartial = (s: string) => s === "PARCIALMENTE_RECEBIDO" || s === "PARCIALMENTE_PAGO";
 
 export function formatBRL(v: number): string {
   return new Intl.NumberFormat("pt-BR", {

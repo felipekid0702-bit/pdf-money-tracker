@@ -105,8 +105,7 @@ export async function importRecords(
       .range(from, from + pageSize - 1);
     if (error) throw error;
     const rows = (data ?? []) as unknown as ExistingRow[];
-    for (const row of rows)
-      if (wanted.has(row.unique_key)) existing.set(row.unique_key, row);
+    for (const row of rows) if (wanted.has(row.unique_key)) existing.set(row.unique_key, row);
     onProgress?.(Math.round(records.length * 0.15), records.length);
     if (rows.length < pageSize) break;
   }
@@ -167,10 +166,7 @@ export async function importRecords(
       .upsert(batch as never, { onConflict: "unique_key" });
     if (error) throw error;
     written += batch.length;
-    onProgress?.(
-      Math.round(records.length * 0.3 + written * 0.7),
-      records.length,
-    );
+    onProgress?.(Math.round(records.length * 0.3 + written * 0.7), records.length);
   });
 
   const total = records.reduce((s, r) => s + r.original_amount, 0);
@@ -209,10 +205,7 @@ export async function importRecords(
 }
 
 export async function clearAllData(): Promise<void> {
-  const a = await supabase
-    .from("financial_movements")
-    .delete()
-    .not("id", "is", null);
+  const a = await supabase.from("financial_movements").delete().not("id", "is", null);
   if (a.error) throw a.error;
   const b = await supabase.from("import_batches").delete().not("id", "is", null);
   if (b.error) throw b.error;

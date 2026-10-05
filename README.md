@@ -892,3 +892,11 @@ npm run dev
 ## Deploy
 
 O projeto usa o comando `npm run build` e está preparado para deploy pela Vercel.
+
+## Histórico de ações de cobrança
+
+Os dados financeiros, os títulos importados dos PDFs e o histórico auxiliar `receivable_email_events` usam o mesmo projeto Supabase original (`giogrwflqnbylhhzoyug`). Configure `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` para o app; a automação usa essa mesma URL e chave publicável. As antigas variáveis `VITE_RECEIVABLE_EVENTS_SUPABASE_*`, que apontavam para um projeto separado, não são mais usadas.
+
+Antes de publicar esta unificação, aplique a migration `supabase/migrations/20261005145100_receivable_email_events.sql` no projeto principal. Ela cria somente a tabela auxiliar de ações; não altera, importa nem recalcula movimentos financeiros. Depois da criação, os eventos existentes no projeto Financeiro separado devem ser migrados uma única vez, preservando o `event_key` para evitar duplicações.
+
+O item **Ações de Cobrança**, separado de **Contas a Receber** na navegação, lista uma linha por título e permite filtrar pelo período e pelo tipo de ação (**Aviso de Vencimento**, **Email de título vencido** ou **Boleto enviado**). Exibe data do envio, cliente, destinatário, nota fiscal/parcela, valor e vencimento; para e-mails de títulos vencidos, também exibe os dias reais em atraso, não a faixa usada pela regra de envio. Envios de boleto registram também os nomes dos PDFs enviados. Na lista de Contas a Receber, o documento mostra um aviso ao passar o cursor quando houver confirmação inequívoca de envio de boleto para aquele título. As automações gravam primeiro a linha na planilha central, inclusive o destinatário, e depois atualizam `receivable_email_events`. A tabela de eventos é auxiliar: não cria nem atualiza títulos financeiros, cujos valores continuam sendo importados exclusivamente dos PDFs.

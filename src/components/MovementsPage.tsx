@@ -3,6 +3,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState } from "@/components/StatCard";
 import { useMovements } from "@/hooks/useMovements";
+import { useReceivableEmailEvents } from "@/hooks/useReceivableEmailEvents";
 import { usePeriod } from "@/lib/period";
 import {
   FIN_STATE_OPTIONS,
@@ -20,6 +21,7 @@ import {
   todayISO,
   type Movement,
   type MovementType,
+  type ReceivableEmailEvent,
 } from "@/lib/finance";
 import { cn } from "@/lib/utils";
 import { ArrowUpDown } from "lucide-react";
@@ -38,6 +40,11 @@ export function MovementsPage({ type }: { type: MovementType }) {
   const isReceita = type === "RECEITA";
   const { data, isLoading } = useMovements();
   const { filter, label } = usePeriod();
+  const {
+    data: receivableEvents = [],
+    error: receivableEventsError,
+    isLoading: receivableEventsLoading,
+  } = useReceivableEmailEvents({ from: null, to: null }, isReceita);
   const today = todayISO();
   const [search, setSearch] = useState("");
   const [state, setState] = useState<"" | FinState>("");
@@ -47,18 +54,53 @@ export function MovementsPage({ type }: { type: MovementType }) {
   const [sortKey, setSortKey] = useState<SortKey>("due_date");
   const [asc, setAsc] = useState(true);
 
-  const base = useMemo(
-    () => (data ?? []).filter((m) => m.type === type),
-    [data, type],
-  );
+  const base = useMemo(() => (data ?? []).filter((m) => m.type === type), [data, type]);
 
   const parties = useMemo(
     () =>
-      Array.from(
-        new Set(base.map((m) => m.counterparty ?? "").filter(Boolean)),
-      ).sort((a, b) => a.localeCompare(b, "pt-BR")),
+      Array.from(new Set(base.map((m) => m.counterparty ?? "").filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b, "pt-BR"),
+      ),
     [base],
   );
+
+  const boletoTooltipByMovementId = useMemo(() => {
+    const result = new Map<string, string>();
+    if (!isReceita) return result;
+
+    for (const movement of base) {
+      const movementDocument = movement.document;
+      if (!movementDocument) continue;
+      const matchingEvents = receivableEvents.filter(
+        (event) =>
+          event.action_type === "boleto_enviado" && matchesBoletoEvent(event, movement, base),
+      );
+      if (!matchingEvents.length) continue;
+      const info = matchingEvents
+        .sort((a, b) => b.sent_at.localeCompare(a.sent_at))
+        .map((event) => {
+          const details = parseEventDetails(event.title_details);
+          const detail = details.find(
+            (candidate) =>
+              candidate.document && documentsMatch(candidate.document, movementDocument),
+          );
+          const date = new Date(event.sent_at).toLocaleString("pt-BR");
+          const files = [detail?.boleto_file, detail?.nf_file, detail?.xml_file]
+            .filter(Boolean)
+            .join(" · ");
+          return [
+            `Boleto enviado em ${date}`,
+            event.recipient_email ? `Destinatário: ${event.recipient_email}` : null,
+            files ? `Arquivos: ${files}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n");
+        })
+        .join("\n\n");
+      result.set(movement.id, info);
+    }
+    return result;
+  }, [base, receivableEvents, isReceita]);
 
   const rows = useMemo(() => {
     let out = filter(base);
@@ -66,10 +108,8 @@ export function MovementsPage({ type }: { type: MovementType }) {
     if (party) out = out.filter((m) => m.counterparty === party);
     const min = minValue ? Number(minValue.replace(",", ".")) : null;
     const max = maxValue ? Number(maxValue.replace(",", ".")) : null;
-    if (min !== null && !Number.isNaN(min))
-      out = out.filter((m) => originalOf(m) >= min);
-    if (max !== null && !Number.isNaN(max))
-      out = out.filter((m) => originalOf(m) <= max);
+    if (min !== null && !Number.isNaN(min)) out = out.filter((m) => originalOf(m) >= min);
+    if (max !== null && !Number.isNaN(max)) out = out.filter((m) => originalOf(m) <= max);
     if (search.trim()) {
       const q = search.toLowerCase();
       out = out.filter(
@@ -87,18 +127,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
       return String(va).localeCompare(String(vb), "pt-BR");
     });
     return asc ? sorted : sorted.reverse();
-  }, [
-    base,
-    filter,
-    state,
-    party,
-    minValue,
-    maxValue,
-    search,
-    sortKey,
-    asc,
-    today,
-  ]);
+  }, [base, filter, state, party, minValue, maxValue, search, sortKey, asc, today]);
 
   const k = sideKpis(rows, today);
 
@@ -183,9 +212,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
               onChange={(e) => setParty(e.target.value)}
               className="max-w-64 rounded-md border border-input bg-card px-3 py-2 text-sm"
             >
-              <option value="">
-                {isReceita ? "Todos os clientes" : "Todos os fornecedores"}
-              </option>
+              <option value="">{isReceita ? "Todos os clientes" : "Todos os fornecedores"}</option>
               {parties.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -218,10 +245,10 @@ export function MovementsPage({ type }: { type: MovementType }) {
                   </th>
                   <th className="px-3 py-2 text-left">{sortBtn("issue_date", "Emissão")}</th>
                   <th className="px-3 py-2 text-left">{sortBtn("due_date", "Vencimento")}</th>
-                  <th className="px-3 py-2 text-left">
-                    {isReceita ? "Recebimento" : "Pagamento"}
+                  <th className="px-3 py-2 text-left">{isReceita ? "Recebimento" : "Pagamento"}</th>
+                  <th className="px-3 py-2 text-right">
+                    {sortBtn("original_amount", "Valor", true)}
                   </th>
-                  <th className="px-3 py-2 text-right">{sortBtn("original_amount", "Valor", true)}</th>
                   <th className="px-3 py-2 text-right">
                     {sortBtn("paid_amount", isReceita ? "Recebido" : "Pago", true)}
                   </th>
@@ -231,7 +258,12 @@ export function MovementsPage({ type }: { type: MovementType }) {
               </thead>
               <tbody>
                 {rows.slice(0, 500).map((m) => (
-                  <Row key={m.id} m={m} today={today} />
+                  <Row
+                    key={m.id}
+                    m={m}
+                    today={today}
+                    boletoTooltip={boletoTooltipByMovementId.get(m.id)}
+                  />
                 ))}
               </tbody>
               <tfoot className="border-t border-border bg-muted/40 font-medium">
@@ -242,39 +274,57 @@ export function MovementsPage({ type }: { type: MovementType }) {
                   </td>
                   <td className="num px-3 py-2 text-right">{formatBRL(k.original)}</td>
                   <td className="num px-3 py-2 text-right">{formatBRL(k.settled)}</td>
-                  <td className="num px-3 py-2 text-right">
-                    {formatBRL(k.open + k.overdue)}
-                  </td>
+                  <td className="num px-3 py-2 text-right">{formatBRL(k.open + k.overdue)}</td>
                   <td />
                 </tr>
               </tfoot>
             </table>
           </div>
+          {isReceita && receivableEventsLoading && (
+            <p className="text-xs text-muted-foreground">
+              Verificando registros de boletos enviados…
+            </p>
+          )}
+          {isReceita && receivableEventsError && (
+            <p role="alert" className="text-xs text-destructive">
+              Não foi possível verificar os registros de boletos enviados:{" "}
+              {receivableEventsError.message}
+            </p>
+          )}
         </div>
       )}
     </AppLayout>
   );
 }
 
-function Row({ m, today }: { m: Movement; today: string }) {
+function Row({
+  m,
+  today,
+  boletoTooltip,
+}: {
+  m: Movement;
+  today: string;
+  boletoTooltip?: string | undefined;
+}) {
   return (
     <tr className="border-b border-border/60 last:border-0 hover:bg-muted/40">
-      <td className="num px-3 py-2 whitespace-nowrap">{m.document ?? ""}</td>
+      <td
+        className="num px-3 py-2 whitespace-nowrap"
+        title={boletoTooltip}
+        aria-label={boletoTooltip ? `${m.document ?? ""}: ${boletoTooltip}` : undefined}
+      >
+        {m.document ?? ""}
+        {boletoTooltip && <span className="sr-only"> — Boleto enviado</span>}
+      </td>
       <td className="max-w-[280px] truncate px-3 py-2" title={m.counterparty ?? ""}>
         {m.counterparty ?? ""}
       </td>
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.issue_date)}</td>
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.due_date)}</td>
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.payment_date)}</td>
-      <td className="num px-3 py-2 text-right whitespace-nowrap">
-        {formatBRL(originalOf(m))}
-      </td>
-      <td className="num px-3 py-2 text-right whitespace-nowrap">
-        {formatBRL(paidOf(m))}
-      </td>
-      <td className="num px-3 py-2 text-right whitespace-nowrap">
-        {formatBRL(openOf(m))}
-      </td>
+      <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(originalOf(m))}</td>
+      <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(paidOf(m))}</td>
+      <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(openOf(m))}</td>
       <td className="px-3 py-2">
         <StatusBadge state={finState(m, today)} label={finStatusLabel(m, today)} />
       </td>
@@ -282,13 +332,93 @@ function Row({ m, today }: { m: Movement; today: string }) {
   );
 }
 
-export function StatusBadge({
-  state,
-  label,
-}: {
-  state: FinState;
-  label: string;
-}) {
+interface BoletoTitleDetail {
+  client: string | null;
+  cnpj: string | null;
+  document: string | null;
+  boleto_file: string | null;
+  nf_file: string | null;
+  xml_file: string | null;
+}
+
+function matchesBoletoEvent(
+  event: ReceivableEmailEvent,
+  movement: Movement,
+  allReceivables: Movement[],
+): boolean {
+  if (!movement.document) return false;
+  const details = parseEventDetails(event.title_details);
+  const documents = [
+    ...event.title_documents,
+    ...details
+      .map((detail) => detail.document)
+      .filter((document): document is string => !!document),
+  ];
+  if (!documents.some((document) => documentsMatch(document, movement.document!))) return false;
+
+  const matchingDetails = details.filter(
+    (detail) => detail.document && documentsMatch(detail.document, movement.document!),
+  );
+  const detail = matchingDetails.length === 1 ? matchingDetails[0] : undefined;
+  const eventCnpj = normalizeDigits(detail?.cnpj);
+  const movementCnpj = normalizeDigits(movement.counterparty_document);
+  if (eventCnpj && movementCnpj) return eventCnpj === movementCnpj;
+
+  const eventClient = normalizeName(detail?.client);
+  const movementClient = normalizeName(movement.counterparty);
+  if (eventClient && movementClient && !/^\d+$/.test(eventClient)) {
+    return eventClient === movementClient;
+  }
+
+  return (
+    allReceivables.filter(
+      (candidate) => !!candidate.document && documentsMatch(candidate.document, movement.document!),
+    ).length === 1
+  );
+}
+
+function parseEventDetails(value: unknown): BoletoTitleDetail[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
+    const detail = item as Record<string, unknown>;
+    return [
+      {
+        client: typeof detail["client"] === "string" ? detail["client"] : null,
+        cnpj: typeof detail["cnpj"] === "string" ? detail["cnpj"] : null,
+        document: typeof detail["document"] === "string" ? detail["document"] : null,
+        boleto_file: typeof detail["boleto_file"] === "string" ? detail["boleto_file"] : null,
+        nf_file: typeof detail["nf_file"] === "string" ? detail["nf_file"] : null,
+        xml_file: typeof detail["xml_file"] === "string" ? detail["xml_file"] : null,
+      },
+    ];
+  });
+}
+
+function documentsMatch(left: string, right: string): boolean {
+  const normalize = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .replace(/\d+/g, (digits) => digits.replace(/^0+(?=\d)/, ""));
+  return normalize(left) !== "" && normalize(left) === normalize(right);
+}
+
+function normalizeDigits(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+function normalizeName(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+export function StatusBadge({ state, label }: { state: FinState; label: string }) {
   const tone =
     state === "REALIZADO"
       ? "bg-success/12 text-success"
@@ -320,9 +450,7 @@ function MiniTotal({
 }) {
   return (
     <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className={cn("num mt-1 text-lg font-semibold", tone)}>{value}</div>
       {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
     </div>
