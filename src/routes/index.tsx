@@ -29,6 +29,7 @@ import {
   dayBlock,
   dowLabel,
   granularityFor,
+  namedProjections,
   openPosition,
   periodKpis,
   projectionForRange,
@@ -82,6 +83,20 @@ function Dashboard() {
   const selectedProjection = useMemo(
     () => projectionForRange(rows, { from: null, to: null }, label, today),
     [rows, label, today],
+  );
+  const proj = useMemo(
+    () =>
+      namedProjections(
+        all,
+        [
+          { id: "next7", label: "Próximos 7 dias" },
+          { id: "next30", label: "Próximos 30 dias" },
+          { id: "next60", label: "Próximos 60 dias" },
+          { id: "next90", label: "Próximos 90 dias" },
+        ],
+        today,
+      ),
+    [all, today],
   );
   const alerts = useMemo(() => attentionPoints(all, today), [all, today]);
   const financialPeriod =
