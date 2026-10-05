@@ -5,12 +5,14 @@ export function StatCard({
   label,
   value,
   hint,
+  period,
   tone = "default",
   icon,
 }: {
   label: string;
   value: string;
   hint?: string;
+  period?: string;
   tone?: "default" | "success" | "danger" | "warning" | "info";
   icon?: ReactNode;
 }) {
@@ -30,10 +32,9 @@ export function StatCard({
         </span>
         {icon}
       </div>
-      <div className={cn("num mt-2 text-xl font-semibold sm:text-2xl", toneClass)}>
-        {value}
-      </div>
+      <div className={cn("num mt-2 text-xl font-semibold sm:text-2xl", toneClass)}>{value}</div>
       {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+      {period && <div className="mt-1 text-[11px] text-muted-foreground">Período: {period}</div>}
     </div>
   );
 }
@@ -50,14 +51,10 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section
-      className={cn("rounded-lg border border-border bg-card shadow-xs", className)}
-    >
+    <section className={cn("rounded-lg border border-border bg-card shadow-xs", className)}>
       <header className="border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold">{title}</h2>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
+        {description && <p className="text-xs text-muted-foreground">{description}</p>}
       </header>
       <div className="p-4">{children}</div>
     </section>
@@ -119,9 +116,7 @@ export function KpiCard({
         >
           {insufficient ? "Dados insuficientes para cálculo" : value}
         </span>
-        {!insufficient && unit && (
-          <span className="text-xs text-muted-foreground">{unit}</span>
-        )}
+        {!insufficient && unit && <span className="text-xs text-muted-foreground">{unit}</span>}
       </div>
       {period && <p className="mt-1 text-[11px] text-muted-foreground">Período: {period}</p>}
       <p className="mt-2 text-xs text-muted-foreground">{explanation}</p>
