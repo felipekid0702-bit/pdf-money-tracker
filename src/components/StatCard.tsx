@@ -5,12 +5,14 @@ export function StatCard({
   label,
   value,
   hint,
+  period,
   tone = "default",
   icon,
 }: {
   label: string;
   value: string;
   hint?: string;
+  period?: string;
   tone?: "default" | "success" | "danger" | "warning" | "info";
   icon?: ReactNode;
 }) {
@@ -34,6 +36,11 @@ export function StatCard({
         {value}
       </div>
       {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+      {period && (
+        <div className="mt-1 text-[11px] text-muted-foreground">
+          Período: {period}
+        </div>
+      )}
     </div>
   );
 }

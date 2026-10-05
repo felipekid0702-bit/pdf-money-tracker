@@ -76,8 +76,8 @@ function Dashboard() {
   const today = todayISO();
   const tomorrow = useMemo(() => addDays(today, 1), [today]);
 
-  /* ---------- posição global (independe do filtro) ---------- */
-  const pos = useMemo(() => openPosition(all, today), [all, today]);
+  /* ---------- posição em aberto no período selecionado ---------- */
+  const pos = useMemo(() => openPosition(rows, today), [rows, today]);
   const proj = useMemo(
     () =>
       namedProjections(
@@ -94,6 +94,11 @@ function Dashboard() {
   );
   const p7 = proj[0]!;
   const alerts = useMemo(() => attentionPoints(all, today), [all, today]);
+  const financialPeriod =
+    range.from || range.to
+      ? `${label}: ${formatDate(range.from) || "…"} – ${formatDate(range.to) || "…"}`
+      : label;
+  const next7Period = `${p7.label}: ${formatDate(p7.from) || "…"} – ${formatDate(p7.to) || "…"}`;
 
   /* ---------- blocos de dia ---------- */
   const hoje = useMemo(() => dayBlock(all, today, today), [all, today]);
@@ -202,45 +207,55 @@ function Dashboard() {
                 label="Saldo projetado"
                 value={formatBRL(saldoProjetado)}
                 hint="A receber − a pagar (projeção, sem saldo bancário)"
+                period={financialPeriod}
                 tone={saldoProjetado >= 0 ? "success" : "danger"}
               />
               <StatCard
                 label="Contas a receber em aberto"
                 value={formatBRL(pos.receivableTotal)}
-                hint={`Inclui ${formatBRL(pos.receivableOverdue)} vencidos`}
+                hint={`Inclui ${formatBRL(pos.receivableOverdue)} vencidos no período`}
+                period={financialPeriod}
                 tone="info"
               />
               <StatCard
                 label="Contas a pagar em aberto"
                 value={formatBRL(pos.payableTotal)}
-                hint={`Inclui ${formatBRL(pos.payableOverdue)} vencidos`}
+                hint={`Inclui ${formatBRL(pos.payableOverdue)} vencidos no período`}
+                period={financialPeriod}
                 tone="warning"
               />
               <StatCard
                 label="Resultado projetado"
-                value={formatBRL(pos.net)}
-                hint="Recebimentos previstos − pagamentos previstos"
-                tone={pos.net >= 0 ? "success" : "danger"}
+                value={formatBRL(resultado)}
+                hint="Valor original a receber − valor original a pagar no período"
+                period={financialPeriod}
+                tone={resultado >= 0 ? "success" : "danger"}
               />
               <StatCard
                 label="Vencido a receber"
                 value={formatBRL(pos.receivableOverdue)}
+                hint="Títulos vencidos e ainda em aberto"
+                period={financialPeriod}
                 tone="danger"
               />
               <StatCard
                 label="Vencido a pagar"
                 value={formatBRL(pos.payableOverdue)}
+                hint="Títulos vencidos e ainda em aberto"
+                period={financialPeriod}
                 tone="danger"
               />
               <StatCard
                 label="Próximos 7 dias"
                 value={`${formatBRL(p7.inflow)} / ${formatBRL(p7.outflow)}`}
                 hint="Recebimentos / pagamentos previstos"
+                period={next7Period}
               />
               <StatCard
                 label="Saldo dos próximos 7 dias"
                 value={formatBRL(p7.net)}
                 hint={`${p7.count} títulos em aberto`}
+                period={next7Period}
                 tone={p7.net >= 0 ? "success" : "danger"}
               />
             </div>
@@ -820,4 +835,3 @@ function ChartBox({
 function compact(v: number) {
   return new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(v);
 }
-
