@@ -82,20 +82,17 @@ function mapStatus(
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
   const settled = type === "RECEITA" ? "RECEBIDO" : "PAGO";
-  const partial =
-    type === "RECEITA" ? "PARCIALMENTE_RECEBIDO" : "PARCIALMENTE_PAGO";
+  const partial = type === "RECEITA" ? "PARCIALMENTE_RECEBIDO" : "PARCIALMENTE_PAGO";
 
   if (s.includes("parcial")) return { status: partial, paidFull: false };
   if (s.includes("pago") || s.includes("paga") || s.includes("recebid"))
     return { status: settled, paidFull: true };
   if (s.includes("atras")) return { status: "ATRASADO", paidFull: false };
   if (s.includes("abert") || s.includes("cancel") || s === "") {
-    if (dueDate && dueDate < todayISO())
-      return { status: "ATRASADO", paidFull: false };
+    if (dueDate && dueDate < todayISO()) return { status: "ATRASADO", paidFull: false };
     return { status: "EM_ABERTO", paidFull: false };
   }
-  if (dueDate && dueDate < todayISO())
-    return { status: "ATRASADO", paidFull: false };
+  if (dueDate && dueDate < todayISO()) return { status: "ATRASADO", paidFull: false };
   return { status: "EM_ABERTO", paidFull: false };
 }
 
@@ -104,9 +101,7 @@ export async function parseBlingPdf(
   onProgress?: (page: number, pages: number) => void,
 ): Promise<ParseResult> {
   const pdfjs = await import("pdfjs-dist");
-  const workerUrl = (
-    await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
-  ).default;
+  const workerUrl = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
   const buffer = await file.arrayBuffer();
@@ -211,8 +206,7 @@ export async function parseBlingPdf(
 
       const dueIdx = dateIdx[dateIdx.length - 1]!;
       const dueDate = toISO(texts[dueIdx]!);
-      const issueDate =
-        dateIdx.length > 1 ? toISO(texts[dateIdx[0]!]!) : null;
+      const issueDate = dateIdx.length > 1 ? toISO(texts[dateIdx[0]!]!) : null;
 
       const statusRaw = texts.slice(dueIdx + 1, valueIdx).join(" ");
       const amount = toNumber(texts[valueIdx]!);
@@ -268,14 +262,12 @@ export async function parseBlingPdf(
       if (!pageRows.length) continue;
       const y = line[0]!.y;
       let best = pageRows[0]!;
-      for (const r of pageRows)
-        if (Math.abs(r.y - y) < Math.abs(best.y - y)) best = r;
+      for (const r of pageRows) if (Math.abs(r.y - y) < Math.abs(best.y - y)) best = r;
       for (const it of line) {
         if (isNoiseToken(it.str)) continue;
         if (it.x < boundary - 5)
           best.rec.counterparty = `${best.rec.counterparty ?? ""} ${it.str}`.trim();
-        else
-          best.rec.description = `${best.rec.description ?? ""} ${it.str}`.trim();
+        else best.rec.description = `${best.rec.description ?? ""} ${it.str}`.trim();
       }
     }
 
@@ -284,7 +276,6 @@ export async function parseBlingPdf(
     if (p % 10 === 0) await new Promise((r) => setTimeout(r, 0));
   }
   await loadingTask.destroy();
-
 
   const type: MovementType = kind ?? "RECEITA";
   for (const r of records) {
@@ -299,9 +290,11 @@ export async function parseBlingPdf(
     ].join("|");
   }
 
-  // drop duplicates inside the same file and rows without value/vencimento
-  const seen = new Set<string>();
-  const unique = records.filter((r) => {
+  // Keep every valid PDF row, including separate titles with the same business key.
+  const occurrences = new Map<string, number>();
+  const validRecords: ParsedRecord[] = [];
+  const rejectedBeforeValidation = rejectedItems.length;
+  for (const r of records) {
     const base = {
       page: recordPage.get(r) ?? 0,
       text: recordText.get(r) ?? "",
@@ -312,26 +305,26 @@ export async function parseBlingPdf(
     };
     if (!r.due_date) {
       rejectedItems.push({ ...base, reason: "Sem data de vencimento" });
-      return false;
+      continue;
     }
     if (!(r.original_amount > 0)) {
       rejectedItems.push({ ...base, reason: "Valor ausente ou igual a zero" });
-      return false;
+      continue;
     }
-    if (seen.has(r.unique_key)) {
-      rejectedItems.push({ ...base, reason: "Duplicado dentro do próprio arquivo" });
-      return false;
-    }
-    seen.add(r.unique_key);
-    return true;
-  });
+
+    const baseKey = r.unique_key;
+    const occurrence = (occurrences.get(baseKey) ?? 0) + 1;
+    occurrences.set(baseKey, occurrence);
+    if (occurrence > 1) r.unique_key = `${baseKey}|${occurrence}`;
+    validRecords.push(r);
+  }
 
   return {
     type,
-    records: unique,
+    records: validRecords,
     pdfTotal,
-    found: records.length,
-    rejected: records.length - unique.length,
+    found: records.length + rejectedBeforeValidation,
+    rejected: rejectedItems.length,
     rejectedItems,
   };
 }

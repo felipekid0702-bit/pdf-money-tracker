@@ -82,6 +82,7 @@ export type Database = {
           open_amount: number;
           paid_amount: number;
           pdf_total: number | null;
+          removed_count: number;
           total_amount: number;
           type: string;
           updated_count: number;
@@ -96,6 +97,7 @@ export type Database = {
           open_amount?: number;
           paid_amount?: number;
           pdf_total?: number | null;
+          removed_count?: number;
           total_amount?: number;
           type: string;
           updated_count?: number;
@@ -110,6 +112,7 @@ export type Database = {
           open_amount?: number;
           paid_amount?: number;
           pdf_total?: number | null;
+          removed_count?: number;
           total_amount?: number;
           type?: string;
           updated_count?: number;
@@ -163,7 +166,22 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      sync_financial_movements: {
+        Args: {
+          p_existing_count: number;
+          p_file_name: string;
+          p_found_count: number;
+          p_new_count: number;
+          p_open_amount: number;
+          p_paid_amount: number;
+          p_pdf_total: number;
+          p_records: Json;
+          p_total_amount: number;
+          p_type: string;
+          p_updated_count: number;
+        };
+        Returns: number;
+      };
     };
     Enums: {
       [_ in never]: never;
