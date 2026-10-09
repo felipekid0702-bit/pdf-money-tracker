@@ -14,12 +14,12 @@ export const Route = createFileRoute("/importacao")({
       {
         name: "description",
         content:
-          "Sincronize as contas a pagar e a receber com relatórios completos em PDF do Bling.",
+          "Importe os relatórios PDF de Contas a Receber e Contas a Pagar do Bling sem duplicar registros.",
       },
       { property: "og:title", content: "Importação de relatórios | FP Financeiro" },
       {
         property: "og:description",
-        content: "Sincronize os movimentos financeiros com relatórios completos do Bling.",
+        content: "Transforme os PDFs do Bling em movimentos financeiros estruturados.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -34,18 +34,18 @@ function Importacao() {
   return (
     <AppLayout
       title="Importar relatório do Bling"
-      subtitle="Use relatórios completos: cada importação atualiza e inclui títulos e remove, daquele tipo, os que não constarem no PDF."
+      subtitle="Qualquer arquivo PDF do Bling, de qualquer tamanho ou nome. A importação continua mesmo se você mudar de tela."
     >
       <div className="space-y-5">
         <div className="grid gap-4 lg:grid-cols-2">
           <UploadBox
             title="Contas a Receber"
-            hint="Sincroniza todas as receitas com o PDF. Não use relatórios parciais."
+            hint="Os registros serão importados como RECEITA."
             onFiles={(f) => enqueue(f, "RECEITA")}
           />
           <UploadBox
             title="Contas a Pagar"
-            hint="Sincroniza todas as despesas com o PDF. Não use relatórios parciais."
+            hint="Os registros serão importados como DESPESA."
             onFiles={(f) => enqueue(f, "DESPESA")}
           />
         </div>
@@ -107,22 +107,24 @@ function JobCard({ job }: { job: ImportJob }) {
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-sm text-success">
           <CheckCircle2 className="size-4" />
-          Contas sincronizadas com o conteúdo completo do PDF.
+          Registros processados com deduplicação automática.
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Line label="Registros encontrados" value={String(r.found)} />
           <Line label="Registros válidos" value={String(r.valid)} />
           <Line label="Rejeitados" value={String(r.rejected)} />
         </div>
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-3">
           <Line label="Novos" value={String(r.created)} />
           <Line label="Já existentes" value={String(r.existing)} />
           <Line label="Atualizados" value={String(r.updated)} />
-          <Line label="Removidos (fora do PDF)" value={String(r.removed)} />
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Line label="Valor total" value={formatBRL(r.total)} />
-          <Line label={r.type === "RECEITA" ? "Recebido" : "Pago"} value={formatBRL(r.paid)} />
+          <Line
+            label={r.type === "RECEITA" ? "Recebido" : "Pago"}
+            value={formatBRL(r.paid)}
+          />
           <Line label="Em aberto" value={formatBRL(r.open)} />
         </div>
         {r.warning && (
@@ -134,9 +136,10 @@ function JobCard({ job }: { job: ImportJob }) {
           <div className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
             <span>
-              Divergência de totais: o PDF informa <strong>{formatBRL(r.pdfTotal)}</strong> e a soma
-              dos registros lidos é <strong>{formatBRL(r.total)}</strong> (diferença de{" "}
-              {formatBRL(r.divergence)}). Os valores individuais foram preservados.
+              Divergência de totais: o PDF informa <strong>{formatBRL(r.pdfTotal)}</strong>{" "}
+              e a soma dos registros lidos é <strong>{formatBRL(r.total)}</strong>{" "}
+              (diferença de {formatBRL(r.divergence)}). Os valores individuais foram
+              preservados.
             </span>
           </div>
         )}
@@ -146,6 +149,7 @@ function JobCard({ job }: { job: ImportJob }) {
           </p>
         )}
         <RejectedList items={r.rejectedItems} divergence={r.divergence} />
+
       </div>
     </SectionCard>
   );
@@ -206,7 +210,11 @@ function RejectedList({
       <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
         Soma das linhas descartadas: <strong>{formatBRL(soma)}</strong>
         {naoExplicado !== null && Math.abs(naoExplicado) >= 0.01 && (
-          <> — ainda restam {formatBRL(naoExplicado)} de diferença sem explicação nestas linhas.</>
+          <>
+            {" "}
+            — ainda restam {formatBRL(naoExplicado)} de diferença sem explicação nestas
+            linhas.
+          </>
         )}
         {naoExplicado !== null && Math.abs(naoExplicado) < 0.01 && (
           <> — explica integralmente a divergência do PDF.</>
@@ -255,7 +263,9 @@ function UploadBox({
         onClick={() => ref.current?.click()}
         onDrop={(e) => {
           e.preventDefault();
-          const files = Array.from(e.dataTransfer.files).filter((f) => /\.pdf$/i.test(f.name));
+          const files = Array.from(e.dataTransfer.files).filter((f) =>
+            /\.pdf$/i.test(f.name),
+          );
           if (files.length) onFiles(files);
         }}
         onDragOver={(e) => e.preventDefault()}
