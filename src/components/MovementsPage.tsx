@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState } from "@/components/StatCard";
 import { useMovements } from "@/hooks/useMovements";
 import { useReceivableEmailEvents } from "@/hooks/useReceivableEmailEvents";
+import { useReceivableEmailRequests } from "@/hooks/useReceivableEmailRequests";
 import { usePeriod } from "@/lib/period";
 import {
   FIN_STATE_OPTIONS,
@@ -20,11 +22,16 @@ import {
   formatDate,
   todayISO,
   type Movement,
+  type ReceivableEmailAction,
   type MovementType,
   type ReceivableEmailEvent,
+  type ReceivableEmailRequest,
 } from "@/lib/finance";
+import { updateManualPaidAmount } from "@/lib/data";
+import { requestReceivableEmail } from "@/lib/receivable-email-requests-data";
 import { cn } from "@/lib/utils";
 import { ArrowUpDown } from "lucide-react";
+import { toast } from "sonner";
 
 type SortKey =
   | "document"
@@ -45,6 +52,12 @@ export function MovementsPage({ type }: { type: MovementType }) {
     error: receivableEventsError,
     isLoading: receivableEventsLoading,
   } = useReceivableEmailEvents({ from: null, to: null }, isReceita);
+  const {
+    data: emailRequests = [],
+    error: emailRequestsError,
+    isLoading: emailRequestsLoading,
+  } = useReceivableEmailRequests(isReceita);
+  const queryClient = useQueryClient();
   const today = todayISO();
   const [search, setSearch] = useState("");
   const [state, setState] = useState<"" | FinState>("");
@@ -54,7 +67,77 @@ export function MovementsPage({ type }: { type: MovementType }) {
   const [sortKey, setSortKey] = useState<SortKey>("due_date");
   const [asc, setAsc] = useState(true);
 
+  const savePaidAmount = useMutation({
+    mutationFn: ({ id, amount }: { id: string; amount: number | null }) =>
+      updateManualPaidAmount(id, amount),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["movements"] });
+      toast.success("Valor recebido atualizado.");
+    },
+    onError: (error: Error) => toast.error(`Não foi possível atualizar o valor: ${error.message}`),
+  });
+  const sendEmailRequest = useMutation({
+    mutationFn: ({
+      movementId,
+      actionType,
+    }: {
+      movementId: string;
+      actionType: ReceivableEmailAction;
+    }) => requestReceivableEmail(movementId, actionType),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["receivable-email-requests"] });
+      toast.success("Solicitação enviada à fila da automação FP Cobrança.");
+    },
+    onError: (error: Error) =>
+      toast.error(`Não foi possível solicitar o envio: ${error.message}`),
+  });
+
   const base = useMemo(() => (data ?? []).filter((m) => m.type === type), [data, type]);
+  const emailActionType: ReceivableEmailAction | null =
+    isReceita && state === "VENCIDO"
+      ? "cobranca_vencido"
+      : isReceita && state === "EM_ABERTO"
+        ? "aviso_vencimento"
+        : null;
+
+  const requestByKey = useMemo(() => {
+    const result = new Map<string, ReceivableEmailRequest>();
+    for (const request of emailRequests) {
+      const key = `${request.movement_id}:${request.action_type}`;
+      if (!result.has(key)) result.set(key, request);
+    }
+    return result;
+  }, [emailRequests]);
+
+  const lastEmailDateByKey = useMemo(() => {
+    const result = new Map<string, string>();
+    if (!isReceita) return result;
+    for (const movement of base) {
+      const actionType =
+        finState(movement, today) === "VENCIDO" ? "cobranca_vencido" : "aviso_vencimento";
+      const matchingEvents = receivableEvents
+        .filter(
+          (event) =>
+            event.action_type === actionType && matchesBoletoEvent(event, movement, base),
+        )
+        .sort((a, b) => b.sent_at.localeCompare(a.sent_at));
+      if (matchingEvents[0]) {
+        result.set(
+          `${movement.id}:${actionType}`,
+          new Date(matchingEvents[0].sent_at).toLocaleDateString("pt-BR"),
+        );
+      } else {
+        const latestRequest = requestByKey.get(`${movement.id}:${actionType}`);
+        if (latestRequest?.status === "sent" && latestRequest.processed_at) {
+          result.set(
+            `${movement.id}:${actionType}`,
+            new Date(latestRequest.processed_at).toLocaleDateString("pt-BR"),
+          );
+        }
+      }
+    }
+    return result;
+  }, [base, receivableEvents, isReceita, requestByKey, today]);
 
   const parties = useMemo(
     () =>
@@ -162,6 +245,12 @@ export function MovementsPage({ type }: { type: MovementType }) {
         <EmptyState />
       ) : (
         <div className="space-y-4">
+          {emailActionType && (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              O pedido será processado pela automação FP Cobrança no computador que estiver com o
+              monitoramento ativo. Antes do envio, a automação pedirá confirmação do destinatário.
+            </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <MiniTotal label="Títulos" value={String(k.count)} />
             <MiniTotal
@@ -187,6 +276,11 @@ export function MovementsPage({ type }: { type: MovementType }) {
               tone="text-destructive"
             />
           </div>
+          {isReceita && emailRequestsError && (
+            <p role="alert" className="text-sm text-destructive">
+              Não foi possível consultar a fila da automação: {emailRequestsError.message}
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <input
@@ -236,7 +330,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-border bg-card">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className={cn("w-full text-sm", emailActionType ? "min-w-[1240px]" : "min-w-[900px]")}>
               <thead className="border-b border-border bg-muted/50">
                 <tr>
                   <th className="px-3 py-2 text-left">{sortBtn("document", "Documento")}</th>
@@ -254,6 +348,13 @@ export function MovementsPage({ type }: { type: MovementType }) {
                   </th>
                   <th className="px-3 py-2 text-right">{sortBtn("open_amount", "Saldo", true)}</th>
                   <th className="px-3 py-2 text-left">{sortBtn("status", "Situação")}</th>
+                  {emailActionType && (
+                    <th className="px-3 py-2 text-left">
+                      {emailActionType === "cobranca_vencido"
+                        ? "Último envio de cobrança"
+                        : "Último aviso de vencimento"}
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -263,6 +364,32 @@ export function MovementsPage({ type }: { type: MovementType }) {
                     m={m}
                     today={today}
                     boletoTooltip={boletoTooltipByMovementId.get(m.id)}
+                    canEditPaidAmount={isReceita && finState(m, today) !== "CANCELADO"}
+                    savingPaidAmount={
+                      savePaidAmount.isPending && savePaidAmount.variables?.id === m.id
+                    }
+                    onSavePaidAmount={(amount) =>
+                      savePaidAmount.mutateAsync({ id: m.id, amount })
+                    }
+                    emailActionType={emailActionType}
+                    lastEmailDate={
+                      emailActionType
+                        ? lastEmailDateByKey.get(`${m.id}:${emailActionType}`) ?? "-"
+                        : "-"
+                    }
+                    emailRequest={
+                      emailActionType
+                        ? requestByKey.get(`${m.id}:${emailActionType}`)
+                        : undefined
+                    }
+                    emailRequestLoading={emailRequestsLoading}
+                    onRequestEmail={() =>
+                      emailActionType &&
+                      sendEmailRequest.mutate({
+                        movementId: m.id,
+                        actionType: emailActionType,
+                      })
+                    }
                   />
                 ))}
               </tbody>
@@ -276,6 +403,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
                   <td className="num px-3 py-2 text-right">{formatBRL(k.settled)}</td>
                   <td className="num px-3 py-2 text-right">{formatBRL(k.open + k.overdue)}</td>
                   <td />
+                  {emailActionType && <td />}
                 </tr>
               </tfoot>
             </table>
@@ -301,13 +429,51 @@ function Row({
   m,
   today,
   boletoTooltip,
+  canEditPaidAmount,
+  savingPaidAmount,
+  onSavePaidAmount,
+  emailActionType,
+  lastEmailDate,
+  emailRequest,
+  emailRequestLoading,
+  onRequestEmail,
 }: {
   m: Movement;
   today: string;
   boletoTooltip?: string | undefined;
+  canEditPaidAmount: boolean;
+  savingPaidAmount: boolean;
+  onSavePaidAmount: (amount: number | null) => Promise<unknown>;
+  emailActionType: ReceivableEmailAction | null;
+  lastEmailDate: string;
+  emailRequest: ReceivableEmailRequest | undefined;
+  emailRequestLoading: boolean;
+  onRequestEmail: () => void;
 }) {
+  const currentState = finState(m, today);
+
+  const requestIsActive =
+    emailRequest?.status === "pending" || emailRequest?.status === "processing";
+  const requestStatusLabel: Record<
+    NonNullable<typeof emailRequest>["status"],
+    string
+  > = {
+    pending: "Na fila da automação",
+    processing: "Aguardando confirmação no computador da automação",
+    sent: "Enviado pela automação",
+    drafted: "Rascunho aberto no Outlook; não enviado",
+    deferred: "Envio adiado na automação",
+    declined: "Envio cancelado na automação",
+    failed: "Falha no processamento da automação",
+  };
+
   return (
-    <tr className="border-b border-border/60 last:border-0 hover:bg-muted/40">
+    <tr
+      className={cn(
+        "border-b border-border/60 last:border-0 hover:bg-muted/40",
+        currentState === "CANCELADO" && "bg-muted/50",
+      )}
+    >
       <td
         className="num px-3 py-2 whitespace-nowrap"
         title={boletoTooltip}
@@ -323,12 +489,158 @@ function Row({
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.due_date)}</td>
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.payment_date)}</td>
       <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(originalOf(m))}</td>
-      <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(paidOf(m))}</td>
+      <td className="num px-3 py-2 text-right whitespace-nowrap">
+        <div className="flex items-center justify-end gap-2">
+          <PaidAmountCell
+            movement={m}
+            editable={canEditPaidAmount}
+            saving={savingPaidAmount}
+            onSave={onSavePaidAmount}
+          />
+        </div>
+      </td>
       <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(openOf(m))}</td>
       <td className="px-3 py-2">
-        <StatusBadge state={finState(m, today)} label={finStatusLabel(m, today)} />
+        <StatusBadge state={currentState} label={finStatusLabel(m, today)} />
       </td>
+      {emailActionType && (
+        <td className="px-3 py-2">
+          <div className="flex min-w-52 flex-col items-start gap-1">
+            <span className="text-xs text-muted-foreground">{lastEmailDate}</span>
+            {emailRequest && (
+              <span
+                role="status"
+                title={emailRequest.error_message ?? undefined}
+                className={cn(
+                  "text-xs",
+                  emailRequest.status === "failed" ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {requestStatusLabel[emailRequest.status]}
+                {emailRequest.error_message ? `: ${emailRequest.error_message}` : ""}
+              </span>
+            )}
+            {!requestIsActive && (
+              <button
+                type="button"
+                disabled={
+                  emailRequestLoading ||
+                  currentState === "CANCELADO" ||
+                  !m.document ||
+                  !m.counterparty ||
+                  !m.due_date
+                }
+                onClick={onRequestEmail}
+                className="rounded-md border border-input bg-background px-2 py-1 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {emailActionType === "cobranca_vencido"
+                  ? "Enviar email de cobrança"
+                  : "Enviar aviso de vencimento"}
+              </button>
+            )}
+          </div>
+        </td>
+      )}
     </tr>
+  );
+}
+
+function PaidAmountCell({
+  movement,
+  editable,
+  saving,
+  onSave,
+}: {
+  movement: Movement;
+  editable: boolean;
+  saving: boolean;
+  onSave: (amount: number | null) => Promise<unknown>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(paidOf(movement).toFixed(2));
+
+  if (!editing) {
+    return (
+      <>
+        <span>{formatBRL(paidOf(movement))}</span>
+        {editable && (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(paidOf(movement).toFixed(2));
+              setEditing(true);
+            }}
+            className="text-xs text-primary hover:underline"
+          >
+            Editar
+          </button>
+        )}
+      </>
+    );
+  }
+
+  const save = async () => {
+    const amount = Number(draft.replace(",", "."));
+    if (!Number.isFinite(amount) || amount < 0 || amount > originalOf(movement)) {
+      toast.error(`Informe um valor entre R$ 0,00 e ${formatBRL(originalOf(movement))}.`);
+      return;
+    }
+    try {
+      await onSave(Math.round(amount * 100) / 100);
+      setEditing(false);
+    } catch {
+      // The mutation reports the request error to the user.
+    }
+  };
+
+  return (
+    <div className="flex min-w-48 flex-col items-end gap-1">
+      <input
+        aria-label={`Valor recebido para ${movement.document ?? movement.counterparty ?? "título"}`}
+        type="number"
+        min="0"
+        max={originalOf(movement)}
+        step="0.01"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        className="w-32 rounded-md border border-input bg-background px-2 py-1 text-right"
+      />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void save()}
+          className="text-xs text-primary hover:underline disabled:opacity-50"
+        >
+          {saving ? "Salvando…" : "Salvar"}
+        </button>
+        {movement.manual_paid_amount != null && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={async () => {
+              try {
+                await onSave(null);
+                setEditing(false);
+              } catch {
+                // The mutation reports the request error to the user.
+              }
+            }}
+            className="text-xs text-muted-foreground hover:underline disabled:opacity-50"
+          >
+            Restaurar PDF
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => setEditing(false)}
+          className="text-xs text-muted-foreground hover:underline disabled:opacity-50"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -420,11 +732,13 @@ function normalizeName(value: string | null | undefined): string {
 
 export function StatusBadge({ state, label }: { state: FinState; label: string }) {
   const tone =
-    state === "REALIZADO"
-      ? "bg-success/12 text-success"
-      : state === "VENCIDO"
-        ? "bg-destructive/12 text-destructive"
-        : "bg-warning/15 text-warning";
+    state === "CANCELADO"
+      ? "border border-border bg-muted text-muted-foreground"
+      : state === "REALIZADO"
+        ? "bg-success/12 text-success"
+        : state === "VENCIDO"
+          ? "bg-destructive/12 text-destructive"
+          : "bg-warning/15 text-warning";
   return (
     <span
       className={cn(

@@ -28,14 +28,14 @@ export function PeriodFilter() {
         className="rounded-md border border-input bg-card px-3 py-2 text-sm"
         aria-label="Período"
       >
-        <optgroup label="Histórico">
+        <optgroup label="Histórico e atual">
           {HISTORY_OPTIONS.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}
             </option>
           ))}
         </optgroup>
-        <optgroup label="Projeção">
+        <optgroup label="Vencimentos futuros">
           {FORECAST_OPTIONS.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}
@@ -67,6 +67,9 @@ export function PeriodFilter() {
           ? `${formatDate(range.from) || "…"} – ${formatDate(range.to) || "…"}`
           : "Todo o período"}
         {isForecastPeriod(period) && " · projeção"}
+      </span>
+      <span className="text-xs text-muted-foreground">
+        O período considera a data de vencimento.
       </span>
     </div>
   );

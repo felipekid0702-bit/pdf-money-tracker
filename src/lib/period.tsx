@@ -57,11 +57,11 @@ export const HISTORY_OPTIONS: { id: PeriodId; label: string }[] = [
   { id: "last_week", label: "Semana anterior" },
   { id: "month", label: "Mês atual" },
   { id: "last_month", label: "Mês anterior" },
-  { id: "quarter", label: "Último trimestre" },
-  { id: "semester", label: "Último semestre" },
-  { id: "year", label: "Último ano" },
+  { id: "quarter", label: "Trimestre atual" },
+  { id: "semester", label: "Semestre atual" },
+  { id: "year", label: "Ano atual" },
   { id: "all", label: "Todo o período" },
-  { id: "custom", label: "Personalizado" },
+  { id: "custom", label: "Personalizado (histórico)" },
 ];
 
 export const FORECAST_OPTIONS: { id: PeriodId; label: string }[] = [
@@ -80,7 +80,7 @@ export const FORECAST_OPTIONS: { id: PeriodId; label: string }[] = [
   { id: "next_quarter", label: "Próximo trimestre" },
   { id: "next_semester", label: "Próximo semestre" },
   { id: "next_year", label: "Próximo ano" },
-  { id: "custom_forecast", label: "Personalizado" },
+  { id: "custom_forecast", label: "Personalizado (futuro)" },
 ];
 
 const FORECAST_IDS = new Set<PeriodId>(FORECAST_OPTIONS.map((o) => o.id));

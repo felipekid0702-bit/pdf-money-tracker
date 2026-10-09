@@ -26,6 +26,17 @@ export async function fetchAllMovements(): Promise<Movement[]> {
   return all;
 }
 
+export async function updateManualPaidAmount(
+  movementId: string,
+  amount: number | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("financial_movements")
+    .update({ manual_paid_amount: amount })
+    .eq("id", movementId);
+  if (error) throw error;
+}
+
 export interface ImportSummary {
   found: number;
   valid: number;

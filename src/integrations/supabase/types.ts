@@ -18,6 +18,7 @@ export type Database = {
           due_date: string | null;
           id: string;
           issue_date: string | null;
+          manual_paid_amount: number | null;
           open_amount: number;
           original_amount: number;
           paid_amount: number;
@@ -38,6 +39,7 @@ export type Database = {
           due_date?: string | null;
           id?: string;
           issue_date?: string | null;
+          manual_paid_amount?: number | null;
           open_amount?: number;
           original_amount?: number;
           paid_amount?: number;
@@ -58,6 +60,7 @@ export type Database = {
           due_date?: string | null;
           id?: string;
           issue_date?: string | null;
+          manual_paid_amount?: number | null;
           open_amount?: number;
           original_amount?: number;
           paid_amount?: number;
@@ -155,6 +158,36 @@ export type Database = {
           title_count?: number;
           title_documents?: string[];
           title_details?: Json;
+        };
+        Relationships: [];
+      };
+      receivable_email_requests: {
+        Row: {
+          action_type: "cobranca_vencido" | "aviso_vencimento";
+          created_at: string;
+          error_message: string | null;
+          id: string;
+          movement_id: string;
+          processed_at: string | null;
+          status: "pending" | "processing" | "sent" | "drafted" | "deferred" | "declined" | "failed";
+        };
+        Insert: {
+          action_type: "cobranca_vencido" | "aviso_vencimento";
+          created_at?: string;
+          error_message?: string | null;
+          id?: string;
+          movement_id: string;
+          processed_at?: string | null;
+          status?: "pending" | "processing" | "sent" | "drafted" | "deferred" | "declined" | "failed";
+        };
+        Update: {
+          action_type?: "cobranca_vencido" | "aviso_vencimento";
+          created_at?: string;
+          error_message?: string | null;
+          id?: string;
+          movement_id?: string;
+          processed_at?: string | null;
+          status?: "pending" | "processing" | "sent" | "drafted" | "deferred" | "declined" | "failed";
         };
         Relationships: [];
       };

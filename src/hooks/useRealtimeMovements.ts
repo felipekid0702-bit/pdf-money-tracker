@@ -9,6 +9,7 @@ export function useRealtimeMovements() {
   useEffect(() => {
     let movementsTimer: ReturnType<typeof setTimeout> | null = null;
     let eventsTimer: ReturnType<typeof setTimeout> | null = null;
+    let requestsTimer: ReturnType<typeof setTimeout> | null = null;
     const invalidate = () => {
       if (movementsTimer) clearTimeout(movementsTimer);
       movementsTimer = setTimeout(() => {
@@ -39,11 +40,27 @@ export function useRealtimeMovements() {
       )
       .subscribe();
 
+    const requestsChannel = supabase
+      .channel("receivable_email_requests_stream")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "receivable_email_requests" },
+        () => {
+          if (requestsTimer) clearTimeout(requestsTimer);
+          requestsTimer = setTimeout(() => {
+            void qc.invalidateQueries({ queryKey: ["receivable-email-requests"] });
+          }, 800);
+        },
+      )
+      .subscribe();
+
     return () => {
       if (movementsTimer) clearTimeout(movementsTimer);
       if (eventsTimer) clearTimeout(eventsTimer);
+      if (requestsTimer) clearTimeout(requestsTimer);
       void supabase.removeChannel(channel);
       void supabase.removeChannel(eventsChannel);
+      void supabase.removeChannel(requestsChannel);
     };
   }, [qc]);
 }

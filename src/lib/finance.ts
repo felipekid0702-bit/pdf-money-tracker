@@ -13,6 +13,18 @@ export interface ReceivableEmailEvent {
   aging_ranges: string[];
 }
 
+export type ReceivableEmailAction = "cobranca_vencido" | "aviso_vencimento";
+
+export interface ReceivableEmailRequest {
+  id: string;
+  movement_id: string;
+  action_type: ReceivableEmailAction;
+  status: "pending" | "processing" | "sent" | "drafted" | "deferred" | "declined" | "failed";
+  error_message: string | null;
+  created_at: string;
+  processed_at: string | null;
+}
+
 export interface Movement {
   id: string;
   type: MovementType;
@@ -25,6 +37,7 @@ export interface Movement {
   payment_date: string | null;
   original_amount: number;
   paid_amount: number;
+  manual_paid_amount?: number | null;
   open_amount: number;
   status: string;
   source: string;
@@ -48,10 +61,25 @@ export const STATUS_LABEL: Record<string, string> = {
   ATRASADO: "Atrasado",
   PARCIALMENTE_RECEBIDO: "Parcial",
   PARCIALMENTE_PAGO: "Parcial",
+  CANCELADO: "Cancelada",
+  CANCELADA: "Cancelada",
 };
 
 export const isSettled = (s: string) => s === "RECEBIDO" || s === "PAGO";
 export const isPartial = (s: string) => s === "PARCIALMENTE_RECEBIDO" || s === "PARCIALMENTE_PAGO";
+
+export function isCancelledStatus(status: string | null | undefined): boolean {
+  const normalized = (status ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  return /\bCANCELAD[AO]\b/.test(normalized);
+}
+
+export function effectivePaidAmount(movement: Movement): number {
+  const paid = movement.manual_paid_amount ?? movement.paid_amount;
+  return Math.max(0, Number(paid) || 0);
+}
 
 export function formatBRL(v: number): string {
   return new Intl.NumberFormat("pt-BR", {
@@ -124,13 +152,19 @@ export function totalize(rows: Movement[]): Totals {
   let total = 0,
     settled = 0,
     open = 0,
-    overdue = 0;
+    overdue = 0,
+    count = 0;
   for (const r of rows) {
+    if (isCancelledStatus(r.status)) continue;
+    count += 1;
     total += Number(r.original_amount) || 0;
-    settled += Number(r.paid_amount) || 0;
-    const o = Number(r.open_amount) || 0;
+    settled += effectivePaidAmount(r);
+    const o =
+      r.manual_paid_amount == null
+        ? Number(r.open_amount) || 0
+        : Math.max(0, (Number(r.original_amount) || 0) - effectivePaidAmount(r));
     open += o;
     if (o > 0 && r.due_date && r.due_date < today) overdue += o;
   }
-  return { count: rows.length, total, settled, open, overdue };
+  return { count, total, settled, open, overdue };
 }
