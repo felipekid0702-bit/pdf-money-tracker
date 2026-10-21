@@ -159,7 +159,8 @@ function Dashboard() {
       };
     });
   }, [series]);
-  const statusData = useMemo(() => statusDistribution(rows, today), [rows, today]);
+  const statusReceber = useMemo(() => statusDistribution(rows, "RECEITA", today), [rows, today]);
+  const statusPagar = useMemo(() => statusDistribution(rows, "DESPESA", today), [rows, today]);
 
   const clientes = useMemo(() => rankParties(rows, "RECEITA", today), [rows, today]);
   const fornecedores = useMemo(() => rankParties(rows, "DESPESA", today), [rows, today]);
@@ -173,7 +174,8 @@ function Dashboard() {
   const margem = k.receita.original > 0 ? resultado / k.receita.original : null;
   const ticketR = k.receita.count > 0 ? k.receita.original / k.receita.count : null;
   const ticketP = k.despesa.count > 0 ? k.despesa.original / k.despesa.count : null;
-  const inadimplencia = k.receita.original > 0 ? k.receita.overdue / k.receita.original : null;
+  const saldoReceber = k.receita.open + k.receita.overdue;
+  const inadimplencia = saldoReceber > 0 ? k.receita.overdue / saldoReceber : null;
   const relacao = k.despesa.settled > 0 ? k.receita.settled / k.despesa.settled : null;
   const ciclo = pmr.value !== null && pmp.value !== null ? pmr.value - pmp.value : null;
   const concCli = topShare(clientes, 5);
@@ -499,7 +501,7 @@ function Dashboard() {
           </div>
 
           {/* 15. PREVISTO x REALIZADO + situação */}
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <SectionCard
               title="Recebimentos x Pagamentos"
               description={`Previsto (em aberto) e realizado · ${label}`}
@@ -531,22 +533,48 @@ function Dashboard() {
             </SectionCard>
 
             <SectionCard
-              title="Distribuição por situação"
-              description={`Realizado, em aberto e vencido · ${label}`}
+              title="Distribuição de situação — a receber"
+              description={`Recebido, a receber e vencido; recebido inclui parcelas liquidadas · ${label}`}
             >
-              {statusData.every((d) => d.value === 0) ? (
+              {statusReceber.length === 0 ? (
                 <Insufficient />
               ) : (
                 <ChartBox>
                   <PieChart>
                     <Pie
-                      data={statusData}
+                      data={statusReceber}
                       dataKey="value"
                       nameKey="name"
                       outerRadius={95}
                       label={false}
                     >
-                      {statusData.map((d) => (
+                      {statusReceber.map((d) => (
+                        <Cell key={d.name} fill={d.fill} />
+                      ))}
+                    </Pie>
+                    <Legend />
+                    <Tooltip formatter={(v: number) => formatBRL(v)} />
+                  </PieChart>
+                </ChartBox>
+              )}
+            </SectionCard>
+            <SectionCard
+              title="Distribuição de situação — a pagar"
+              description={`Pago, a pagar e vencido; pago inclui parcelas liquidadas · ${label}`}
+            >
+              {statusPagar.length === 0 ? (
+                <Insufficient />
+              ) : (
+                <ChartBox>
+                  <PieChart>
+                    <Pie
+                      data={statusPagar}
+                      dataKey="value"
+                      nameKey="name"
+                      outerRadius={95}
+                      label={false}
+                    >
+                      {statusPagar.map((d) => (
                         <Cell key={d.name} fill={d.fill} />
                       ))}
                     </Pie>
@@ -633,11 +661,13 @@ function Dashboard() {
                 value={inadimplencia === null ? "—" : formatPercent(inadimplencia)}
                 unit="%"
                 period={label}
-                explanation="Parcela do faturamento vencida e não recebida."
-                formula="Receita vencida ÷ Receita total"
-                interpretation="Acima de 15% exige ação de cobrança."
+                explanation="Percentual do saldo total a receber que já venceu e continua em aberto."
+                formula="Saldo vencido a receber ÷ (Saldo em aberto + saldo vencido)"
+                interpretation="Ideal: 0%. Qualquer saldo vencido pede acompanhamento de cobrança."
                 insufficient={inadimplencia === null}
-                tone="danger"
+                tone={
+                  inadimplencia === null ? "default" : inadimplencia === 0 ? "success" : "danger"
+                }
               />
               <KpiCard
                 name="PMR — prazo médio de recebimento"

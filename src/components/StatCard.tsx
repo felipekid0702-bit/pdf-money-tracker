@@ -72,7 +72,7 @@ export function EmptyState({ message }: { message?: string }) {
   );
 }
 
-/** KPI com nome, valor, unidade, período, explicação, fórmula e interpretação. */
+/** KPI com nome, valor, unidade, período, explicação, fórmula, referência e status. */
 export function KpiCard({
   name,
   value,
@@ -81,6 +81,8 @@ export function KpiCard({
   explanation,
   formula,
   interpretation,
+  ideal,
+  status,
   tone = "default",
   insufficient,
 }: {
@@ -91,6 +93,8 @@ export function KpiCard({
   explanation: string;
   formula: string;
   interpretation?: string;
+  ideal?: string;
+  status?: string;
   tone?: "default" | "success" | "danger" | "warning" | "info";
   insufficient?: boolean;
 }) {
@@ -123,6 +127,16 @@ export function KpiCard({
       <p className="mt-1 text-[11px] text-muted-foreground/80">
         <span className="font-medium">Fórmula:</span> {formula}
       </p>
+      {ideal && (
+        <p className="mt-1 text-[11px] text-muted-foreground/80">
+          <span className="font-medium">Ideal:</span> {ideal}
+        </p>
+      )}
+      {status && (
+        <p className="mt-1 text-[11px] text-muted-foreground/80">
+          <span className="font-medium">Status atual:</span> {status}
+        </p>
+      )}
       {!insufficient && interpretation && (
         <p className="mt-1 text-[11px] text-muted-foreground/80">
           <span className="font-medium">Leitura:</span> {interpretation}

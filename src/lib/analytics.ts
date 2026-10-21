@@ -46,8 +46,7 @@ export function finState(m: Movement, today = todayISO()): FinState {
   }
   const s = (m.status ?? "").toUpperCase();
   if (s === "RECEBIDO" || s === "PAGO") return "REALIZADO";
-  if (openOf(m) <= 0 && (paidOf(m) > 0 || s === "RECEBIDO" || s === "PAGO"))
-    return "REALIZADO";
+  if (openOf(m) <= 0 && (paidOf(m) > 0 || s === "RECEBIDO" || s === "PAGO")) return "REALIZADO";
   if (s === "ATRASADO" || s === "VENCIDO") return "VENCIDO";
   if (m.due_date && m.due_date < today) return "VENCIDO";
   return "EM_ABERTO";
@@ -152,8 +151,14 @@ export interface PeriodKpis {
 }
 
 export function periodKpis(rows: Movement[], today = todayISO()): PeriodKpis {
-  const receita = sideKpis(rows.filter((m) => m.type === "RECEITA"), today);
-  const despesa = sideKpis(rows.filter((m) => m.type === "DESPESA"), today);
+  const receita = sideKpis(
+    rows.filter((m) => m.type === "RECEITA"),
+    today,
+  );
+  const despesa = sideKpis(
+    rows.filter((m) => m.type === "DESPESA"),
+    today,
+  );
   return {
     receita,
     despesa,
@@ -218,9 +223,7 @@ export function projectionForRange(
 }
 
 export function projections(all: Movement[], today = todayISO()): ProjectionRow[] {
-  return PROJ_WINDOWS.map((w) =>
-    projectionForRange(all, resolvePeriod(w.id), w.label, today),
-  );
+  return PROJ_WINDOWS.map((w) => projectionForRange(all, resolvePeriod(w.id), w.label, today));
 }
 
 export function namedProjections(
@@ -313,11 +316,7 @@ export interface PartyRow {
   share: number;
 }
 
-export function rankParties(
-  rows: Movement[],
-  type: MovementType,
-  today = todayISO(),
-): PartyRow[] {
+export function rankParties(rows: Movement[], type: MovementType, today = todayISO()): PartyRow[] {
   const map = new Map<string, PartyRow>();
   let grand = 0;
   for (const m of rows) {
@@ -325,9 +324,15 @@ export function rankParties(
     const st = finState(m, today);
     if (st === "CANCELADO") continue;
     const name = m.counterparty?.trim() || "(sem identificação)";
-    const cur =
-      map.get(name) ??
-      { name, total: 0, settled: 0, open: 0, overdue: 0, count: 0, share: 0 };
+    const cur = map.get(name) ?? {
+      name,
+      total: 0,
+      settled: 0,
+      open: 0,
+      overdue: 0,
+      count: 0,
+      share: 0,
+    };
     cur.total = money(cur.total + originalOf(m));
     cur.settled = money(cur.settled + paidOf(m));
     if (st === "VENCIDO") cur.overdue = money(cur.overdue + openOf(m));
@@ -392,8 +397,18 @@ export interface SeriesPoint {
 }
 
 const MONTHS_ABBR = [
-  "jan", "fev", "mar", "abr", "mai", "jun",
-  "jul", "ago", "set", "out", "nov", "dez",
+  "jan",
+  "fev",
+  "mar",
+  "abr",
+  "mai",
+  "jun",
+  "jul",
+  "ago",
+  "set",
+  "out",
+  "nov",
+  "dez",
 ];
 
 function bucketLabel(key: string, g: Granularity): string {
@@ -405,20 +420,22 @@ function bucketLabel(key: string, g: Granularity): string {
   return g === "week" ? `${d}/${m}` : `${d}/${m}`;
 }
 
-export function timeSeries(
-  rows: Movement[],
-  g: Granularity,
-  today = todayISO(),
-): SeriesPoint[] {
+export function timeSeries(rows: Movement[], g: Granularity, today = todayISO()): SeriesPoint[] {
   const map = new Map<string, SeriesPoint>();
   for (const m of rows) {
     if (!m.due_date) continue;
     const st = finState(m, today);
     if (st === "CANCELADO") continue;
     const key = bucketKey(m.due_date, g);
-    const cur =
-      map.get(key) ??
-      { key, label: bucketLabel(key, g), recebido: 0, pago: 0, aReceber: 0, aPagar: 0, liquido: 0 };
+    const cur = map.get(key) ?? {
+      key,
+      label: bucketLabel(key, g),
+      recebido: 0,
+      pago: 0,
+      aReceber: 0,
+      aPagar: 0,
+      liquido: 0,
+    };
     if (m.type === "RECEITA") {
       cur.recebido = money(cur.recebido + paidOf(m));
       if (st !== "REALIZADO") cur.aReceber = money(cur.aReceber + openOf(m));
@@ -438,25 +455,34 @@ export function timeSeries(
 
 /* ---------------- Distribuição por status ---------------- */
 
-export function statusDistribution(rows: Movement[], today = todayISO()) {
-  let recebido = 0,
-    pago = 0,
+export function statusDistribution(rows: Movement[], type: MovementType, today = todayISO()) {
+  let realizado = 0,
     aberto = 0,
     vencido = 0;
   for (const m of rows) {
+    if (m.type !== type) continue;
     const st = finState(m, today);
     if (st === "CANCELADO") continue;
-    if (st === "REALIZADO") {
-      if (m.type === "RECEITA") recebido = money(recebido + paidOf(m));
-      else pago = money(pago + paidOf(m));
-    } else if (st === "VENCIDO") vencido = money(vencido + openOf(m));
-    else aberto = money(aberto + openOf(m));
+    realizado = money(realizado + paidOf(m));
+    if (st === "VENCIDO") vencido = money(vencido + openOf(m));
+    else if (st === "EM_ABERTO") aberto = money(aberto + openOf(m));
   }
   return [
-    { name: "Recebido", value: recebido, fill: "var(--color-chart-1)" },
-    { name: "Pago", value: pago, fill: "var(--color-chart-3)" },
-    { name: "Em aberto", value: aberto, fill: "var(--color-chart-4)" },
-    { name: "Vencido", value: vencido, fill: "var(--color-chart-2)" },
+    {
+      name: type === "RECEITA" ? "Recebido" : "Pago",
+      value: realizado,
+      fill: type === "RECEITA" ? "var(--color-chart-1)" : "var(--color-chart-3)",
+    },
+    {
+      name: type === "RECEITA" ? "A receber" : "A pagar",
+      value: aberto,
+      fill: "var(--color-chart-4)",
+    },
+    {
+      name: type === "RECEITA" ? "Receber vencido" : "Pagar vencido",
+      value: vencido,
+      fill: "var(--color-chart-2)",
+    },
   ].filter((d) => d.value > 0);
 }
 
@@ -474,27 +500,22 @@ export interface DaySummary {
   items: Movement[];
 }
 
-export function summarizeByDay(
-  all: Movement[],
-  today = todayISO(),
-): Map<string, DaySummary> {
+export function summarizeByDay(all: Movement[], today = todayISO()): Map<string, DaySummary> {
   const map = new Map<string, DaySummary>();
   for (const m of all) {
     const key = (m.due_date ?? "").slice(0, 10);
     if (!key) continue;
-    const cur =
-      map.get(key) ??
-      {
-        date: key,
-        toReceive: 0,
-        toPay: 0,
-        received: 0,
-        paid: 0,
-        overdueReceive: 0,
-        overduePay: 0,
-        count: 0,
-        items: [] as Movement[],
-      };
+    const cur = map.get(key) ?? {
+      date: key,
+      toReceive: 0,
+      toPay: 0,
+      received: 0,
+      paid: 0,
+      overdueReceive: 0,
+      overduePay: 0,
+      count: 0,
+      items: [] as Movement[],
+    };
     const st = finState(m, today);
     if (st === "CANCELADO") continue;
     if (st === "REALIZADO") {
@@ -699,7 +720,10 @@ export interface OpenPosition {
 }
 
 export function openPosition(all: Movement[], today = todayISO()): OpenPosition {
-  let ro = 0, rv = 0, po = 0, pv = 0;
+  let ro = 0,
+    rv = 0,
+    po = 0,
+    pv = 0;
   for (const m of all) {
     const st = finState(m, today);
     if (st === "REALIZADO" || st === "CANCELADO") continue;
@@ -723,14 +747,15 @@ export function openPosition(all: Movement[], today = todayISO()): OpenPosition 
 }
 
 /** Distribuição por situação de um lado (recebíveis ou pagáveis). */
-export function sideDistribution(
-  all: Movement[],
-  type: MovementType,
-  today = todayISO(),
-) {
+export function sideDistribution(all: Movement[], type: MovementType, today = todayISO()) {
   const in7 = addDays(today, 7);
   const in30 = addDays(today, 30);
-  let realizado = 0, vencido = 0, hoje = 0, d7 = 0, d30 = 0, depois = 0;
+  let realizado = 0,
+    vencido = 0,
+    hoje = 0,
+    d7 = 0,
+    d30 = 0,
+    depois = 0;
   for (const m of all) {
     if (m.type !== type) continue;
     const st = finState(m, today);
@@ -877,7 +902,7 @@ export function avgSettlementDays(
     if (m.type !== type) continue;
     if (finState(m, today) !== "REALIZADO") continue;
     const base = m.issue_date;
-    const end = m.payment_date ?? m.due_date;
+    const end = m.payment_date;
     if (!base || !end) continue;
     const diff = daysBetween(base, end);
     if (isFinite(diff) && diff >= 0 && diff < 3650) vals.push(diff);
