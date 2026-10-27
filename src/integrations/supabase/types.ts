@@ -25,6 +25,7 @@ export type Database = {
           source: string;
           source_file: string | null;
           status: string;
+          sync_state: "current" | "review";
           type: string;
           unique_key: string;
           updated_at: string;
@@ -45,6 +46,7 @@ export type Database = {
           source: string;
           source_file?: string | null;
           status: string;
+          sync_state?: "current" | "review";
           type: string;
           unique_key: string;
           updated_at?: string;
@@ -65,6 +67,7 @@ export type Database = {
           source?: string;
           source_file?: string | null;
           status?: string;
+          sync_state?: "current" | "review";
           type?: string;
           unique_key?: string;
           updated_at?: string;
@@ -83,6 +86,7 @@ export type Database = {
           paid_amount: number;
           pdf_total: number | null;
           removed_count: number;
+          review_required_count: number;
           total_amount: number;
           type: string;
           updated_count: number;
@@ -98,6 +102,7 @@ export type Database = {
           paid_amount?: number;
           pdf_total?: number | null;
           removed_count?: number;
+          review_required_count?: number;
           total_amount?: number;
           type: string;
           updated_count?: number;
@@ -113,6 +118,7 @@ export type Database = {
           paid_amount?: number;
           pdf_total?: number | null;
           removed_count?: number;
+          review_required_count?: number;
           total_amount?: number;
           type?: string;
           updated_count?: number;
@@ -161,6 +167,132 @@ export type Database = {
         };
         Relationships: [];
       };
+      receivable_contacts: {
+        Row: {
+          id: string;
+          match_key: string;
+          counterparty_name: string;
+          email: string;
+          cc: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          match_key: string;
+          counterparty_name: string;
+          email: string;
+          cc?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          match_key?: string;
+          counterparty_name?: string;
+          email?: string;
+          cc?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      receivable_email_requests: {
+        Row: {
+          id: string;
+          idempotency_key: string;
+          movement_id: string | null;
+          action_type: "cobranca_vencido" | "aviso_vencimento";
+          status: "sending" | "sent" | "failed" | "needs_review";
+          recipient_email: string;
+          subject: string;
+          error_code: string | null;
+          created_at: string;
+          sent_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          idempotency_key: string;
+          movement_id?: string | null;
+          action_type: "cobranca_vencido" | "aviso_vencimento";
+          status: "sending" | "sent" | "failed" | "needs_review";
+          recipient_email: string;
+          subject: string;
+          error_code?: string | null;
+          created_at?: string;
+          sent_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          idempotency_key?: string;
+          movement_id?: string | null;
+          action_type?: "cobranca_vencido" | "aviso_vencimento";
+          status?: "sending" | "sent" | "failed" | "needs_review";
+          recipient_email?: string;
+          subject?: string;
+          error_code?: string | null;
+          created_at?: string;
+          sent_at?: string | null;
+        };
+        Relationships: [];
+      };
+      billing_login_attempts: {
+        Row: {
+          ip_hash: string;
+          window_started_at: string;
+          attempt_count: number;
+        };
+        Insert: {
+          ip_hash: string;
+          window_started_at?: string;
+          attempt_count?: number;
+        };
+        Update: {
+          ip_hash?: string;
+          window_started_at?: string;
+          attempt_count?: number;
+        };
+        Relationships: [];
+      };
+      fiscal_documents: {
+        Row: {
+          id: string;
+          direction: "ENTRADA" | "SAIDA";
+          document_number: string;
+          invoice_type: string | null;
+          issue_date: string;
+          counterparty: string;
+          status: string;
+          amount: number;
+          source_file: string;
+          unique_key: string;
+          imported_at: string;
+        };
+        Insert: {
+          id?: string;
+          direction: "ENTRADA" | "SAIDA";
+          document_number: string;
+          invoice_type?: string | null;
+          issue_date: string;
+          counterparty: string;
+          status: string;
+          amount: number;
+          source_file: string;
+          unique_key: string;
+          imported_at?: string;
+        };
+        Update: {
+          id?: string;
+          direction?: "ENTRADA" | "SAIDA";
+          document_number?: string;
+          invoice_type?: string | null;
+          issue_date?: string;
+          counterparty?: string;
+          status?: string;
+          amount?: number;
+          source_file?: string;
+          unique_key?: string;
+          imported_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -181,6 +313,10 @@ export type Database = {
           p_updated_count: number;
         };
         Returns: number;
+      };
+      consume_billing_login_attempt: {
+        Args: { p_ip_hash: string };
+        Returns: boolean;
       };
     };
     Enums: {

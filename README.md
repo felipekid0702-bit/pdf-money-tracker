@@ -27,7 +27,7 @@ A aplicação terá como única fonte de dados, nesta primeira versão:
 
 RELATÓRIOS PDF EXPORTADOS DO BLING.
 
-Existem somente dois tipos de dados:
+Existem três áreas de dados separadas:
 
 CONTAS A RECEBER
 
@@ -37,6 +37,10 @@ CONTAS A PAGAR
 
 Representa despesas e valores que a empresa precisa pagar.
 
+DOCUMENTOS FISCAIS
+
+Registros descritivos de Notas Fiscais de Entrada e Saída. Eles ficam em tabela própria e não alteram saldos ou títulos financeiros.
+
 O objetivo é importar esses PDFs, transformar seus registros em movimentos financeiros estruturados e apresentar dashboards, análises e previsões.
 
 2. NÃO IMPLEMENTAR
@@ -45,11 +49,9 @@ Para economizar créditos e manter o projeto simples, NÃO implementar:
 
 XML;
 
-NF-e;
-
 SEFAZ;
 
-impostos;
+impostos ou cálculos tributários;
 
 SPED;
 
@@ -68,8 +70,6 @@ chatbot;
 ERP;
 
 emissão de notas;
-
-conciliação fiscal;
 
 conciliação bancária;
 
@@ -900,3 +900,40 @@ Os dados financeiros, os títulos importados dos PDFs e o histórico auxiliar `r
 O projeto novo foi provisionado com as migrations versionadas em `supabase/migrations/`. Os movimentos financeiros, lotes de importação e 143 eventos de cobrança existentes foram copiados sem recalcular valores e verificados por conteúdo e chaves únicas. O projeto Financeiro anterior na mesma organização foi preservado sem alterações.
 
 O item **Ações de Cobrança**, separado de **Contas a Receber** na navegação, lista uma linha por título e permite filtrar pelo período e pelo tipo de ação (**Aviso de Vencimento**, **Email de título vencido** ou **Boleto enviado**). Exibe data do envio, cliente, destinatário, nota fiscal/parcela, valor e vencimento; para e-mails de títulos vencidos, também exibe os dias reais em atraso, não a faixa usada pela regra de envio. Envios de boleto registram também os nomes dos PDFs enviados. Na lista de Contas a Receber, o documento mostra um aviso ao passar o cursor quando houver confirmação inequívoca de envio de boleto para aquele título. As automações gravam primeiro a linha na planilha central, inclusive o destinatário, e depois atualizam `receivable_email_events`. A tabela de eventos é auxiliar: não cria nem atualiza títulos financeiros, cujos valores continuam sendo importados exclusivamente dos PDFs.
+
+## Avisos e cobranças via Microsoft Graph
+
+Em **Contas a Receber**, o botão de e-mail dispara diretamente pelo servidor Vercel: não depende do painel local nem do Outlook. O app envia um título por e-mail, usando o saldo em aberto. São permitidos os marcos D-14, D-7 e D-1 e cobranças com mais de 15 dias de atraso; o servidor valida novamente o título, destinatário, saldo e período antes de enviar. A chave idempotente evita repetir o mesmo título no mesmo marco ou semana.
+
+Antes de habilitar o fluxo:
+
+1. Aplique as migrations de `supabase/migrations/` no projeto `fxurtjedvjjtcvytrxvl`.
+2. No Microsoft Entra, configure um aplicativo com permissão **Application** `Mail.Send` e consentimento administrativo para a caixa remetente.
+3. Configure como variáveis privadas do projeto Vercel:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY` — somente servidor; nunca use prefixo `VITE_`.
+   - `BILLING_LOGIN_USERNAME`
+   - `BILLING_LOGIN_PASSWORD` — senha aleatória com pelo menos 16 caracteres.
+   - `BILLING_SESSION_SECRET` — segredo aleatório com pelo menos 32 caracteres.
+   - `MS_GRAPH_TENANT_ID`
+   - `MS_GRAPH_CLIENT_ID`
+   - `MS_GRAPH_CLIENT_SECRET`
+   - `MS_GRAPH_SENDER_EMAIL`
+4. Faça login pelo controle **Acesso de cobrança** no cabeçalho, abra **Configurações** e importe o JSON local de contatos. A lista é armazenada em `receivable_contacts`, sem permissões de leitura para `anon`/`authenticated`; o servidor usa a chave `service_role`.
+5. Valide primeiro em produção apenas com um título e destinatário de teste controlado pela empresa. O Graph envia de verdade assim que as credenciais estiverem configuradas; não há modo rascunho nesse endpoint.
+
+Não reutilize senha publicada em chat ou código. Cadastre uma senha nova e exclusiva diretamente na Vercel. A sessão de cobrança usa cookie `HttpOnly`, expira em 8 horas e o endpoint limita tentativas de login. Os e-mails de cobrança/aviso não incluem anexos; o fluxo de boleto + Nota Fiscal continua separado.
+
+## Importação financeira não destrutiva
+
+Uma importação completa continua atualizando os títulos presentes no PDF, mas títulos armazenados que não aparecem no novo arquivo agora ficam marcados como **Revisão necessária** em vez de serem apagados. Eles permanecem nos dados e nos totais até uma conferência manual no Bling, e o endpoint de e-mail bloqueia esses títulos. Assim, ausência em um PDF não é tratada silenciosamente como quitação ou exclusão.
+
+Os quatro PDFs fornecidos para a evolução fiscal são relatórios de **Notas Fiscais de Entrada/Saída**; eles não substituem os relatórios de **Contas a Receber/Pagar** usados para conciliar os saldos citados no artefato. Não use esses PDFs fiscais para baixar títulos financeiros.
+
+## Importação de Notas Fiscais
+
+Em **Importação**, os relatórios fiscais têm campos separados para **Notas Fiscais de Entrada** e **Notas Fiscais de Saída**. O parser valida as colunas, preserva zeros à esquerda nos números e bloqueia a importação se encontrar linhas fiscais não reconhecidas ou se o tipo de relatório não corresponder ao campo escolhido. As notas são deduplicadas por direção, número, data de emissão e contraparte.
+
+Os registros são salvos em `fiscal_documents`, uma tabela privada e separada de `financial_movements`. A importação não cria, baixa nem altera valores de Contas a Receber/Pagar e não executa cálculos tributários. A lista mostra as 100 notas importadas mais recentemente.
+
+O acesso reutiliza **Acesso de cobrança** no cabeçalho. Configure `BILLING_LOGIN_USERNAME`, `BILLING_LOGIN_PASSWORD` (senha nova, exclusiva e com pelo menos 16 caracteres) e `BILLING_SESSION_SECRET` (pelo menos 32 caracteres) como variáveis privadas do projeto Vercel. A tabela fiscal requer a migration `20261026210000_fiscal_documents.sql`, aplicada após as migrations anteriores. No Supabase, os registros ficam inacessíveis a `anon` e `authenticated`; as rotas do servidor consultam e gravam com `SUPABASE_SERVICE_ROLE_KEY`.

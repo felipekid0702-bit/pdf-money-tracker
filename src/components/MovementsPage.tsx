@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState } from "@/components/StatCard";
@@ -24,6 +25,7 @@ import {
   type ReceivableEmailEvent,
 } from "@/lib/finance";
 import { cn } from "@/lib/utils";
+import { useBillingSession } from "@/lib/billing-session";
 import { ArrowUpDown } from "lucide-react";
 
 type SortKey =
@@ -39,6 +41,7 @@ type SortKey =
 export function MovementsPage({ type }: { type: MovementType }) {
   const isReceita = type === "RECEITA";
   const { data, isLoading } = useMovements();
+  const { authenticated } = useBillingSession();
   const { filter, label } = usePeriod();
   const {
     data: receivableEvents = [],
@@ -254,6 +257,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
                   </th>
                   <th className="px-3 py-2 text-right">{sortBtn("open_amount", "Saldo", true)}</th>
                   <th className="px-3 py-2 text-left">{sortBtn("status", "Situação")}</th>
+                  {isReceita && <th className="px-3 py-2 text-left">E-mail</th>}
                 </tr>
               </thead>
               <tbody>
@@ -263,6 +267,8 @@ export function MovementsPage({ type }: { type: MovementType }) {
                     m={m}
                     today={today}
                     boletoTooltip={boletoTooltipByMovementId.get(m.id)}
+                    showBillingAction={isReceita}
+                    authenticated={authenticated}
                   />
                 ))}
               </tbody>
@@ -275,7 +281,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
                   <td className="num px-3 py-2 text-right">{formatBRL(k.original)}</td>
                   <td className="num px-3 py-2 text-right">{formatBRL(k.settled)}</td>
                   <td className="num px-3 py-2 text-right">{formatBRL(k.open + k.overdue)}</td>
-                  <td />
+                  <td colSpan={isReceita ? 2 : 1} />
                 </tr>
               </tfoot>
             </table>
@@ -301,11 +307,16 @@ function Row({
   m,
   today,
   boletoTooltip,
+  showBillingAction,
+  authenticated,
 }: {
   m: Movement;
   today: string;
   boletoTooltip?: string | undefined;
+  showBillingAction: boolean;
+  authenticated: boolean;
 }) {
+  const billingAction = showBillingAction ? billingActionFor(m.due_date, today) : null;
   return (
     <tr className="border-b border-border/60 last:border-0 hover:bg-muted/40">
       <td
@@ -326,9 +337,109 @@ function Row({
       <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(paidOf(m))}</td>
       <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(openOf(m))}</td>
       <td className="px-3 py-2">
-        <StatusBadge state={finState(m, today)} label={finStatusLabel(m, today)} />
+        <StatusBadge
+          state={finState(m, today)}
+          label={
+            m.sync_state === "review"
+              ? "Revisão necessária"
+              : m.sync_state === "current"
+                ? finStatusLabel(m, today)
+                : "Atualize a migration"
+          }
+        />
       </td>
+      {showBillingAction && (
+        <td className="px-3 py-2">
+          {m.sync_state !== "current" ? (
+            <span className="text-xs text-warning">
+              {m.sync_state === "review"
+                ? "Bloqueado até revisar no Bling"
+                : "Bloqueado até atualizar a migration"}
+            </span>
+          ) : !billingAction || openOf(m) <= 0 ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : (
+            <BillingSendButton
+              movementId={m.id}
+              label={billingAction}
+              authenticated={authenticated}
+            />
+          )}
+        </td>
+      )}
     </tr>
+  );
+}
+
+function billingActionFor(dueDate: string | null, today: string): string | null {
+  if (!dueDate) return null;
+  const daysUntil = Math.round(
+    (Date.parse(`${dueDate.slice(0, 10)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) /
+      86_400_000,
+  );
+  if ([14, 7, 1].includes(daysUntil)) return `Aviso D-${daysUntil}`;
+  if (daysUntil <= -16) return "Cobrar vencido";
+  return null;
+}
+
+function BillingSendButton({
+  movementId,
+  label,
+  authenticated,
+}: {
+  movementId: string;
+  label: string;
+  authenticated: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function send() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/billing", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "send", movementId }),
+      });
+      const result = (await response.json()) as { error?: string; sent?: boolean };
+      if (!response.ok) throw new Error(result.error ?? "Não foi possível enviar o e-mail.");
+      if (!result.sent) throw new Error("O servidor não confirmou o envio.");
+      setMessage("E-mail enviado.");
+      await queryClient.invalidateQueries({ queryKey: ["receivable-email-events"] });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível enviar o e-mail.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        disabled={!authenticated || busy}
+        onClick={send}
+        title={
+          authenticated
+            ? "Envia imediatamente pelo Microsoft Graph"
+            : "Entre pelo controle no cabeçalho"
+        }
+        className="rounded-md border border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {busy ? "Enviando…" : authenticated ? label : "Entre para enviar"}
+      </button>
+      {message && (
+        <p
+          role={message === "E-mail enviado." ? "status" : "alert"}
+          className="max-w-56 text-xs text-muted-foreground"
+        >
+          {message}
+        </p>
+      )}
+    </div>
   );
 }
 

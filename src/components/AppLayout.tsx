@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { BillingAccessControl } from "@/lib/billing-session";
 import logo from "@/assets/FP Logo - Fundo Branco.png";
 import { NyansapoMark } from "@/components/NyansapoMark";
 
@@ -66,10 +67,7 @@ export function AppLayout({
 
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div
-            className="absolute inset-0 bg-foreground/40"
-            onClick={() => setOpen(false)}
-          />
+          <div className="absolute inset-0 bg-foreground/40" onClick={() => setOpen(false)} />
           <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-sidebar">
             <Brand />
             {nav}
@@ -89,11 +87,10 @@ export function AppLayout({
           </button>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-lg font-semibold">{title}</h1>
-            {subtitle && (
-              <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-            )}
+            {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
           </div>
           {actions}
+          <BillingAccessControl />
         </header>
         <main className={cn("px-4 py-6 sm:px-6")}>
           {children}
@@ -136,11 +133,7 @@ function LogoMark() {
           event.currentTarget.nextElementSibling?.classList.remove("hidden");
         }}
       />
-      <svg
-        viewBox="0 0 40 40"
-        aria-hidden="true"
-        className="hidden size-full"
-      >
+      <svg viewBox="0 0 40 40" aria-hidden="true" className="hidden size-full">
         <rect width="40" height="40" rx="7" fill="#719d6d" />
         <path d="M11 9h18v6H17v5h9v6h-9v5h-6V9Z" fill="#f6efdf" />
         <path d="M17 20h8v6h-8v-6Z" fill="#719d6d" />

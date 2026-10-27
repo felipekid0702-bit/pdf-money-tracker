@@ -15,6 +15,7 @@ import { ImportProvider } from "@/lib/import-context";
 import { ImportStatusBar } from "@/components/ImportStatusBar";
 import { useRealtimeMovements } from "@/hooks/useRealtimeMovements";
 import { reportLovableError } from "@/lib/lovable-error-reporting";
+import { BillingAccessProvider } from "@/lib/billing-session";
 
 function NotFoundComponent() {
   return (
@@ -142,7 +143,9 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <ImportProvider>
-        <AppShell />
+        <BillingAccessProvider>
+          <AppShell />
+        </BillingAccessProvider>
       </ImportProvider>
     </QueryClientProvider>
   );

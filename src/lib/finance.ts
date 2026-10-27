@@ -29,6 +29,7 @@ export interface Movement {
   status: string;
   source: string;
   source_file: string | null;
+  sync_state?: "current" | "review";
   created_at?: string;
 }
 

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef } from "react";
 import { AlertTriangle, CheckCircle2, FileUp, Loader2, Trash2 } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
+import { FiscalReportsImport } from "@/components/FiscalReportsImport";
 import { SectionCard } from "@/components/StatCard";
 import { useImportQueue, type ImportJob } from "@/lib/import-context";
 import { formatBRL } from "@/lib/finance";
@@ -37,6 +38,7 @@ function Importacao() {
       subtitle="Qualquer arquivo PDF do Bling, de qualquer tamanho ou nome. A importação continua mesmo se você mudar de tela."
     >
       <div className="space-y-5">
+        <FiscalReportsImport />
         <div className="grid gap-4 lg:grid-cols-2">
           <UploadBox
             title="Contas a Receber"
@@ -107,7 +109,9 @@ function JobCard({ job }: { job: ImportJob }) {
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-sm text-success">
           <CheckCircle2 className="size-4" />
-          Registros processados com deduplicação automática.
+          {r.reviewApplied
+            ? "Registros deduplicados; ausências do PDF completo foram preservadas para revisão."
+            : "Registros processados com deduplicação; ausências não foram alteradas porque o arquivo não passou pelas validações para conferência completa."}
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Line label="Registros encontrados" value={String(r.found)} />
@@ -118,13 +122,11 @@ function JobCard({ job }: { job: ImportJob }) {
           <Line label="Novos" value={String(r.created)} />
           <Line label="Já existentes" value={String(r.existing)} />
           <Line label="Atualizados" value={String(r.updated)} />
+          <Line label="Ausentes do PDF (revisão)" value={String(r.reviewRequired)} />
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Line label="Valor total" value={formatBRL(r.total)} />
-          <Line
-            label={r.type === "RECEITA" ? "Recebido" : "Pago"}
-            value={formatBRL(r.paid)}
-          />
+          <Line label={r.type === "RECEITA" ? "Recebido" : "Pago"} value={formatBRL(r.paid)} />
           <Line label="Em aberto" value={formatBRL(r.open)} />
         </div>
         {r.warning && (
@@ -136,10 +138,9 @@ function JobCard({ job }: { job: ImportJob }) {
           <div className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
             <span>
-              Divergência de totais: o PDF informa <strong>{formatBRL(r.pdfTotal)}</strong>{" "}
-              e a soma dos registros lidos é <strong>{formatBRL(r.total)}</strong>{" "}
-              (diferença de {formatBRL(r.divergence)}). Os valores individuais foram
-              preservados.
+              Divergência de totais: o PDF informa <strong>{formatBRL(r.pdfTotal)}</strong> e a soma
+              dos registros lidos é <strong>{formatBRL(r.total)}</strong> (diferença de{" "}
+              {formatBRL(r.divergence)}). Os valores individuais foram preservados.
             </span>
           </div>
         )}
@@ -149,7 +150,6 @@ function JobCard({ job }: { job: ImportJob }) {
           </p>
         )}
         <RejectedList items={r.rejectedItems} divergence={r.divergence} />
-
       </div>
     </SectionCard>
   );
@@ -210,11 +210,7 @@ function RejectedList({
       <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
         Soma das linhas descartadas: <strong>{formatBRL(soma)}</strong>
         {naoExplicado !== null && Math.abs(naoExplicado) >= 0.01 && (
-          <>
-            {" "}
-            — ainda restam {formatBRL(naoExplicado)} de diferença sem explicação nestas
-            linhas.
-          </>
+          <> — ainda restam {formatBRL(naoExplicado)} de diferença sem explicação nestas linhas.</>
         )}
         {naoExplicado !== null && Math.abs(naoExplicado) < 0.01 && (
           <> — explica integralmente a divergência do PDF.</>
@@ -263,9 +259,7 @@ function UploadBox({
         onClick={() => ref.current?.click()}
         onDrop={(e) => {
           e.preventDefault();
-          const files = Array.from(e.dataTransfer.files).filter((f) =>
-            /\.pdf$/i.test(f.name),
-          );
+          const files = Array.from(e.dataTransfer.files).filter((f) => /\.pdf$/i.test(f.name));
           if (files.length) onFiles(files);
         }}
         onDragOver={(e) => e.preventDefault()}
