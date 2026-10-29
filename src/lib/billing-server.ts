@@ -43,7 +43,17 @@ interface ImportFiscalBody {
   records: FiscalDocumentInput[];
 }
 
-type PostBody = LoginBody | SendBody | ImportContactsBody | ImportFiscalBody | { action: "logout" };
+interface ClearFinancialDataBody {
+  action: "clear_financial_data";
+}
+
+type PostBody =
+  | LoginBody
+  | SendBody
+  | ImportContactsBody
+  | ImportFiscalBody
+  | ClearFinancialDataBody
+  | { action: "logout" };
 
 interface MovementRow {
   id: string;
@@ -912,5 +922,25 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
 
   if (body.action === "import_fiscal") return importFiscalDocuments(body);
   if (body.action === "send") return sendBillingEmail(body);
+  if (body.action === "clear_financial_data") {
+    if (!hasAdminDatabaseConfig()) {
+      return jsonResponse(
+        { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
+        503,
+      );
+    }
+    const { error } = await supabaseAdmin.rpc("clear_financial_data");
+    if (error) {
+      console.error("[billing] falha ao limpar os dados financeiros", error);
+      if (error.code === "P0001") {
+        return jsonResponse({ error: error.message }, 409);
+      }
+      return jsonResponse(
+        { error: "Não foi possível apagar os dados financeiros e fiscais." },
+        500,
+      );
+    }
+    return jsonResponse({ cleared: true });
+  }
   return jsonResponse({ error: "Ação de cobrança desconhecida." }, 400);
 }

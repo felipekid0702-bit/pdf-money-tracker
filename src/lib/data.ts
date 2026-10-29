@@ -258,8 +258,11 @@ export async function importRecords(
 }
 
 export async function clearAllData(): Promise<void> {
-  const movements = await supabase.from("financial_movements").delete().not("id", "is", null);
-  if (movements.error) throw movements.error;
-  const batches = await supabase.from("import_batches").delete().not("id", "is", null);
-  if (batches.error) throw batches.error;
+  const response = await fetch("/api/billing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "clear_financial_data" }),
+  });
+  const result = (await response.json()) as { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Falha ao apagar os dados.");
 }

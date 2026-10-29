@@ -200,7 +200,17 @@ export type Database = {
           idempotency_key: string;
           movement_id: string | null;
           action_type: "cobranca_vencido" | "aviso_vencimento";
-          status: "sending" | "sent" | "failed" | "needs_review";
+          status:
+            | "sending"
+            | "sent"
+            | "failed"
+            | "needs_review"
+            | "pending"
+            | "processing"
+            | "drafted"
+            | "deferred"
+            | "declined"
+            | "cancelled";
           recipient_email: string;
           subject: string;
           error_code: string | null;
@@ -212,7 +222,17 @@ export type Database = {
           idempotency_key: string;
           movement_id?: string | null;
           action_type: "cobranca_vencido" | "aviso_vencimento";
-          status: "sending" | "sent" | "failed" | "needs_review";
+          status:
+            | "sending"
+            | "sent"
+            | "failed"
+            | "needs_review"
+            | "pending"
+            | "processing"
+            | "drafted"
+            | "deferred"
+            | "declined"
+            | "cancelled";
           recipient_email: string;
           subject: string;
           error_code?: string | null;
@@ -224,7 +244,17 @@ export type Database = {
           idempotency_key?: string;
           movement_id?: string | null;
           action_type?: "cobranca_vencido" | "aviso_vencimento";
-          status?: "sending" | "sent" | "failed" | "needs_review";
+          status?:
+            | "sending"
+            | "sent"
+            | "failed"
+            | "needs_review"
+            | "pending"
+            | "processing"
+            | "drafted"
+            | "deferred"
+            | "declined"
+            | "cancelled";
           recipient_email?: string;
           subject?: string;
           error_code?: string | null;
@@ -317,6 +347,10 @@ export type Database = {
       consume_billing_login_attempt: {
         Args: { p_ip_hash: string };
         Returns: boolean;
+      };
+      clear_financial_data: {
+        Args: Record<PropertyKey, never>;
+        Returns: undefined;
       };
     };
     Enums: {

@@ -8,6 +8,7 @@ import { NyansapoMark } from "@/components/NyansapoMark";
 import { clearAllData } from "@/lib/data";
 import { useMovements } from "@/hooks/useMovements";
 import { useBillingSession } from "@/lib/billing-session";
+import { useImportQueue } from "@/lib/import-context";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -16,12 +17,13 @@ export const Route = createFileRoute("/configuracoes")({
       {
         name: "description",
         content:
-          "Limpeza total dos movimentos financeiros e do histórico de importações do FP Financeiro.",
+          "Limpe movimentos, notas fiscais e importações preservando contatos e histórico de cobranças.",
       },
       { property: "og:title", content: "Configurações | FP Financeiro" },
       {
         property: "og:description",
-        content: "Apague todos os dados financeiros importados e comece de uma base vazia.",
+        content:
+          "Apague dados financeiros, fiscais e importações sem remover o histórico de cobranças.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -37,11 +39,23 @@ function Configuracoes() {
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
   const { data } = useMovements();
+  const { jobs, running: importing } = useImportQueue();
   const { authenticated } = useBillingSession();
   const [contactsBusy, setContactsBusy] = useState(false);
   const [contactsMessage, setContactsMessage] = useState("");
+  const importsInProgress =
+    importing ||
+    jobs.some((job) => job.phase === "fila" || job.phase === "lendo" || job.phase === "gravando");
 
   async function wipe() {
+    if (!authenticated) {
+      setError("Entre na área de cobrança antes de apagar os dados.");
+      return;
+    }
+    if (importsInProgress) {
+      setError("Aguarde a conclusão das importações antes de limpar os dados.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -138,22 +152,36 @@ function Configuracoes() {
         </div>
 
         <SectionCard
-          title="Limpar dados financeiros"
-          description={`${data?.length ?? 0} movimentos armazenados atualmente`}
+          title="Limpar dados financeiros e fiscais"
+          description={`${data?.length ?? 0} movimentos; notas, relatórios, conciliações e importações também serão apagados`}
         >
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Esta ação apaga todos os movimentos financeiros e o histórico de importações. A
-              estrutura da aplicação e as configurações são preservadas.
+              Esta ação apaga movimentos financeiros, notas fiscais, relatórios importados,
+              conciliações, ajustes de cadastros e histórico de importações. Os contatos e o
+              histórico de ações de cobrança (boletos enviados, avisos de vencimento e cobranças de
+              títulos vencidos) são preservados. Solicitações de cobrança pendentes são canceladas;
+              se houver um envio em andamento, a limpeza aguardará uma nova tentativa.
             </p>
+            {!authenticated && (
+              <p role="status" className="text-sm text-warning">
+                Entre na área de cobrança para autorizar a limpeza dos dados.
+              </p>
+            )}
+            {importsInProgress && (
+              <p role="status" className="text-sm text-warning">
+                Aguarde a conclusão das importações antes de limpar os dados.
+              </p>
+            )}
 
             {step === 0 && (
               <button
+                disabled={!authenticated || importsInProgress}
                 onClick={() => {
                   setDone(false);
                   setStep(1);
                 }}
-                className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
+                className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Trash2 className="size-4" /> Apagar todos os dados
               </button>
@@ -162,7 +190,8 @@ function Configuracoes() {
             {step === 1 && (
               <div className="rounded-md border border-warning/50 bg-warning/10 p-4 text-sm">
                 <p className="font-medium">
-                  Confirmação 1 de 2: deseja realmente apagar todos os dados financeiros?
+                  Confirmação 1 de 2: apagar movimentos, documentos fiscais, relatórios,
+                  conciliações e histórico de importações?
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
@@ -185,7 +214,8 @@ function Configuracoes() {
               <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm">
                 <p className="flex items-start gap-2 font-medium text-destructive">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                  Confirmação 2 de 2: esta operação é irreversível.
+                  Confirmação 2 de 2: a operação é irreversível. Contatos e histórico das ações de
+                  cobrança serão preservados; solicitações pendentes serão canceladas.
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
@@ -209,7 +239,8 @@ function Configuracoes() {
             {done && (
               <div className="flex items-center gap-2 text-sm text-success">
                 <CheckCircle2 className="size-4" />
-                Dados apagados. A base está vazia novamente.
+                Dados financeiros, fiscais, relatórios e conciliações apagados. Contatos e histórico
+                de cobranças preservados.
               </div>
             )}
 
