@@ -44,6 +44,10 @@ export interface ImportSummary {
   divergence: number | null;
 }
 
+function normKey(v: string | null): string {
+  return (v ?? "").toUpperCase().replace(/\s+/g, " ").trim();
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const batches: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -139,10 +143,43 @@ export async function importRecords(
     if (rows.length < pageSize) break;
   }
 
+  // O PDF do Bling traz só o saldo. Em pagamento parcial o saldo muda o valor
+  // que compõe a unique_key; por isso o título é reconhecido também por
+  // documento + cliente + vencimento, e o valor original gravado é preservado.
+  const looseKey = (r: {
+    document: string | null;
+    counterparty: string | null;
+    due_date: string | null;
+  }) => [normKey(r.document), normKey(r.counterparty), r.due_date ?? ""].join("|");
+  const looseIndex = new Map<string, ExistingRow[]>();
+  for (const row of allExisting) {
+    const k = looseKey(row);
+    looseIndex.set(k, [...(looseIndex.get(k) ?? []), row]);
+  }
+  const claimed = new Set<string>(
+    records.map((r) => existing.get(r.unique_key)?.id).filter((id): id is string => !!id),
+  );
+
   const toInsert: ParsedRecord[] = [];
   const toUpdate: Array<Record<string, unknown>> = [];
-  for (const record of records) {
-    const previous = existing.get(record.unique_key);
+  for (const incoming of records) {
+    let record = incoming;
+    let previous = existing.get(record.unique_key);
+    if (!previous && (record.status === "PARCIALMENTE_RECEBIDO" || record.status === "PARCIALMENTE_PAGO")) {
+      const candidates = (looseIndex.get(looseKey(record)) ?? []).filter(
+        (row) => !claimed.has(row.id) && Number(row.original_amount) > record.open_amount,
+      );
+      if (candidates.length === 1) {
+        previous = candidates[0]!;
+        claimed.add(previous.id);
+        const original = Number(previous.original_amount);
+        record = {
+          ...record,
+          original_amount: original,
+          paid_amount: Number((original - record.open_amount).toFixed(2)),
+        };
+      }
+    }
     if (!previous) {
       toInsert.push(record);
       continue;
@@ -205,7 +242,9 @@ export async function importRecords(
 
   const paid = records.reduce((sum, record) => sum + cents(record.paid_amount), 0) / 100;
   const open = records.reduce((sum, record) => sum + cents(record.open_amount), 0) / 100;
-  const missingRows = allExisting.filter((row) => !wanted.has(row.unique_key));
+  const missingRows = allExisting.filter(
+    (row) => !wanted.has(row.unique_key) && !claimed.has(row.id),
+  );
   if (reviewApplied && missingRows.length) {
     await mapLimit(chunk(missingRows, 400), 3, async (batch) => {
       const { error } = await supabase

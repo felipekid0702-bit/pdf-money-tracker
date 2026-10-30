@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState } from "@/components/StatCard";
-import { useMovements } from "@/hooks/useMovements";
+import { useAllMovements } from "@/hooks/useMovements";
 import { useReceivableEmailEvents } from "@/hooks/useReceivableEmailEvents";
 import { usePeriod } from "@/lib/period";
 import {
@@ -40,7 +40,7 @@ type SortKey =
 
 export function MovementsPage({ type }: { type: MovementType }) {
   const isReceita = type === "RECEITA";
-  const { data, isLoading } = useMovements();
+  const { data: allData, isLoading } = useAllMovements();
   const { authenticated } = useBillingSession();
   const { filter, label } = usePeriod();
   const {
@@ -57,7 +57,14 @@ export function MovementsPage({ type }: { type: MovementType }) {
   const [sortKey, setSortKey] = useState<SortKey>("due_date");
   const [asc, setAsc] = useState(true);
 
-  const base = useMemo(() => (data ?? []).filter((m) => m.type === type), [data, type]);
+  const [showReview, setShowReview] = useState(false);
+  const typed = useMemo(() => (allData ?? []).filter((m) => m.type === type), [allData, type]);
+  const reviewRows = useMemo(() => typed.filter((m) => m.sync_state === "review"), [typed]);
+  // Por padrão só entram títulos que constam no último relatório do Bling.
+  const base = useMemo(
+    () => (showReview ? typed : typed.filter((m) => m.sync_state !== "review")),
+    [typed, showReview],
+  );
 
   const parties = useMemo(
     () =>
@@ -165,6 +172,21 @@ export function MovementsPage({ type }: { type: MovementType }) {
         <EmptyState />
       ) : (
         <div className="space-y-4">
+          {reviewRows.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+              <span>
+                {reviewRows.length} título(s) somando{" "}
+                {formatBRL(reviewRows.reduce((acc, m) => acc + openOf(m), 0))} não constam no
+                último relatório do Bling e ficam fora dos totais e da cobrança.
+              </span>
+              <button
+                className="underline"
+                onClick={() => setShowReview((v) => !v)}
+              >
+                {showReview ? "Ocultar títulos em revisão" : "Mostrar títulos em revisão"}
+              </button>
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <MiniTotal label="Títulos" value={String(k.count)} />
             <MiniTotal
