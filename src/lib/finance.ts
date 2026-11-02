@@ -26,6 +26,8 @@ export interface Movement {
   original_amount: number;
   paid_amount: number;
   open_amount: number;
+  paid_amount_known: boolean;
+  open_amount_known: boolean;
   status: string;
   source: string;
   source_file: string | null;
@@ -38,9 +40,16 @@ export const RECEITA_STATUS = [
   "EM_ABERTO",
   "ATRASADO",
   "PARCIALMENTE_RECEBIDO",
+  "CANCELADO",
 ] as const;
 
-export const DESPESA_STATUS = ["PAGO", "EM_ABERTO", "ATRASADO", "PARCIALMENTE_PAGO"] as const;
+export const DESPESA_STATUS = [
+  "PAGO",
+  "EM_ABERTO",
+  "ATRASADO",
+  "PARCIALMENTE_PAGO",
+  "CANCELADO",
+] as const;
 
 export const STATUS_LABEL: Record<string, string> = {
   RECEBIDO: "Recebido",
@@ -49,6 +58,7 @@ export const STATUS_LABEL: Record<string, string> = {
   ATRASADO: "Atrasado",
   PARCIALMENTE_RECEBIDO: "Parcial",
   PARCIALMENTE_PAGO: "Parcial",
+  CANCELADO: "Cancelado",
 };
 
 export const isSettled = (s: string) => s === "RECEBIDO" || s === "PAGO";
@@ -126,12 +136,15 @@ export function totalize(rows: Movement[]): Totals {
     settled = 0,
     open = 0,
     overdue = 0;
-  for (const r of rows) {
+  const activeRows = rows.filter(
+    (r) => r.status.toUpperCase() !== "CANCELADO" && r.status.toUpperCase() !== "CANCELADA",
+  );
+  for (const r of activeRows) {
     total += Number(r.original_amount) || 0;
-    settled += Number(r.paid_amount) || 0;
-    const o = Number(r.open_amount) || 0;
+    if (r.paid_amount_known !== false) settled += Number(r.paid_amount) || 0;
+    const o = r.open_amount_known === false ? 0 : Number(r.open_amount) || 0;
     open += o;
     if (o > 0 && r.due_date && r.due_date < today) overdue += o;
   }
-  return { count: rows.length, total, settled, open, overdue };
+  return { count: activeRows.length, total, settled, open, overdue };
 }

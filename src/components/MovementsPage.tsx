@@ -60,6 +60,10 @@ export function MovementsPage({ type }: { type: MovementType }) {
   const [showReview, setShowReview] = useState(false);
   const typed = useMemo(() => (allData ?? []).filter((m) => m.type === type), [allData, type]);
   const reviewRows = useMemo(() => typed.filter((m) => m.sync_state === "review"), [typed]);
+  const unknownBalanceRows = useMemo(
+    () => typed.filter((m) => m.open_amount_known === false && m.sync_state !== "review"),
+    [typed],
+  );
   // Por padrão só entram títulos que constam no último relatório do Bling.
   const base = useMemo(
     () => (showReview ? typed : typed.filter((m) => m.sync_state !== "review")),
@@ -114,7 +118,11 @@ export function MovementsPage({ type }: { type: MovementType }) {
 
   const rows = useMemo(() => {
     let out = filter(base);
-    if (state) out = out.filter((m) => finState(m, today) === state);
+    if (state === "CANCELADO") out = out.filter((m) => finState(m, today) === "CANCELADO");
+    else {
+      out = out.filter((m) => finState(m, today) !== "CANCELADO");
+      if (state) out = out.filter((m) => finState(m, today) === state);
+    }
     if (party) out = out.filter((m) => m.counterparty === party);
     const min = minValue ? Number(minValue.replace(",", ".")) : null;
     const max = maxValue ? Number(maxValue.replace(",", ".")) : null;
@@ -187,6 +195,16 @@ export function MovementsPage({ type }: { type: MovementType }) {
               </button>
             </div>
           )}
+          {state !== "CANCELADO" && unknownBalanceRows.length > 0 && (
+            <div
+              role="status"
+              className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs"
+            >
+              {unknownBalanceRows.length} título(s) parcial(is) sem valores de recebimento/pagamento
+              e saldo detalhados neste relatório. Eles contam como títulos, mas seus valores não
+              entram nos totais; importe do Bling um relatório com a coluna Saldo para conciliá-los.
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <MiniTotal label="Títulos" value={String(k.count)} />
             <MiniTotal
@@ -208,7 +226,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
             <MiniTotal
               label="Vencido"
               value={formatBRL(k.overdue)}
-              hint={`${k.overdueCount} títulos`}
+              hint={`${k.overdueCount} títulos${k.unknownOpenCount ? `; ${k.unknownOpenCount} saldo(s) não informado(s)` : ""}`}
               tone="text-destructive"
             />
           </div>
@@ -356,8 +374,20 @@ function Row({
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.due_date)}</td>
       <td className="num px-3 py-2 whitespace-nowrap">{formatDate(m.payment_date)}</td>
       <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(originalOf(m))}</td>
-      <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(paidOf(m))}</td>
-      <td className="num px-3 py-2 text-right whitespace-nowrap">{formatBRL(openOf(m))}</td>
+      <td className="num px-3 py-2 text-right whitespace-nowrap">
+        {m.paid_amount_known === false ? (
+          <span title="O PDF não informa quanto já foi recebido/pago.">—</span>
+        ) : (
+          formatBRL(paidOf(m))
+        )}
+      </td>
+      <td className="num px-3 py-2 text-right whitespace-nowrap">
+        {m.open_amount_known === false ? (
+          <span title="O PDF não informa o saldo em aberto deste título.">—</span>
+        ) : (
+          formatBRL(openOf(m))
+        )}
+      </td>
       <td className="px-3 py-2">
         <StatusBadge
           state={finState(m, today)}
@@ -553,11 +583,13 @@ function normalizeName(value: string | null | undefined): string {
 
 export function StatusBadge({ state, label }: { state: FinState; label: string }) {
   const tone =
-    state === "REALIZADO"
-      ? "bg-success/12 text-success"
-      : state === "VENCIDO"
-        ? "bg-destructive/12 text-destructive"
-        : "bg-warning/15 text-warning";
+    state === "CANCELADO"
+      ? "bg-muted text-muted-foreground"
+      : state === "REALIZADO"
+        ? "bg-success/12 text-success"
+        : state === "VENCIDO"
+          ? "bg-destructive/12 text-destructive"
+          : "bg-warning/15 text-warning";
   return (
     <span
       className={cn(

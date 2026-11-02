@@ -9,7 +9,7 @@ export async function fetchAllMovements(): Promise<Movement[]> {
     const { data, error } = await supabase
       .from("financial_movements")
       .select(
-        "id,unique_key,paid_amount,open_amount,status,payment_date,issue_date,description,counterparty,counterparty_document,document,source_file,type,source,original_amount,due_date,sync_state",
+        "id,unique_key,paid_amount,open_amount,paid_amount_known,open_amount_known,status,payment_date,issue_date,description,counterparty,counterparty_document,document,source_file,type,source,original_amount,due_date,sync_state",
       )
       .order("due_date", { ascending: true })
       .range(from, from + pageSize - 1);
@@ -21,6 +21,8 @@ export async function fetchAllMovements(): Promise<Movement[]> {
         original_amount: Number(row.original_amount),
         paid_amount: Number(row.paid_amount),
         open_amount: Number(row.open_amount),
+        paid_amount_known: Boolean(row.paid_amount_known),
+        open_amount_known: Boolean(row.open_amount_known),
       })),
     );
     if (rows.length < pageSize) break;
@@ -108,6 +110,8 @@ function toDatabaseRecord(record: ParsedRecord): Record<string, unknown> {
     original_amount: record.original_amount,
     paid_amount: record.paid_amount,
     open_amount: record.open_amount,
+    paid_amount_known: record.paid_amount_known,
+    open_amount_known: record.open_amount_known,
     status: record.status,
     source: record.source,
     source_file: record.source_file,
@@ -138,6 +142,8 @@ interface ExistingRow {
   unique_key: string;
   paid_amount: number | string;
   open_amount: number | string;
+  paid_amount_known: boolean;
+  open_amount_known: boolean;
   status: string;
   payment_date: string | null;
   issue_date: string | null;
@@ -198,10 +204,11 @@ export async function importRecords(
   const overdueOnly = records.every(
     (record) =>
       !!record.due_date &&
-      record.due_date < todayISO() &&
-      (record.status === "ATRASADO" ||
-        record.status === "PARCIALMENTE_RECEBIDO" ||
-        record.status === "PARCIALMENTE_PAGO"),
+      (record.status === "CANCELADO" ||
+        (record.due_date < todayISO() &&
+          (record.status === "ATRASADO" ||
+            record.status === "PARCIALMENTE_RECEBIDO" ||
+            record.status === "PARCIALMENTE_PAGO"))),
   );
   const existing = new Map<string, ExistingRow>();
   const existingByIdentity = new Map<string, ExistingRow[]>();
@@ -276,8 +283,13 @@ export async function importRecords(
       }
     }
     if (!previous) {
-      toInsert.push(record);
-      effectiveRecords.push(record);
+      const newRecord: ParsedRecord = {
+        ...record,
+        paid_amount: record.paid_amount_known ? record.paid_amount : 0,
+        open_amount: record.open_amount_known ? record.open_amount : 0,
+      };
+      toInsert.push(newRecord);
+      effectiveRecords.push(newRecord);
       continue;
     }
     matchedExistingIds.add(previous.id);
@@ -287,13 +299,38 @@ export async function importRecords(
       amountKind === "balance"
         ? Math.max(previousOriginal, record.open_amount)
         : record.original_amount;
+    const partial =
+      record.status === "PARCIALMENTE_RECEBIDO" || record.status === "PARCIALMENTE_PAGO";
+    let paidAmountKnown = record.paid_amount_known;
+    let openAmountKnown = record.open_amount_known;
+    let paidAmount = record.paid_amount;
+    let openAmount = record.open_amount;
+
+    if (amountKind === "balance") {
+      paidAmountKnown = true;
+      openAmountKnown = true;
+      paidAmount = Number((effectiveOriginal - record.open_amount).toFixed(2));
+    } else if (partial) {
+      if (previous.paid_amount_known && previous.open_amount_known) {
+        paidAmountKnown = true;
+        openAmountKnown = true;
+        paidAmount = Math.min(effectiveOriginal, Math.max(0, Number(previous.paid_amount)));
+        openAmount = Number((effectiveOriginal - paidAmount).toFixed(2));
+      } else {
+        paidAmountKnown = false;
+        openAmountKnown = false;
+        paidAmount = 0;
+        openAmount = 0;
+      }
+    }
+
     const effectiveRecord: ParsedRecord = {
       ...record,
       original_amount: effectiveOriginal,
-      paid_amount:
-        amountKind === "balance"
-          ? Number((effectiveOriginal - record.open_amount).toFixed(2))
-          : record.paid_amount,
+      paid_amount: paidAmountKnown ? paidAmount : 0,
+      open_amount: openAmountKnown ? openAmount : 0,
+      paid_amount_known: paidAmountKnown,
+      open_amount_known: openAmountKnown,
     };
     effectiveRecords.push(effectiveRecord);
 
@@ -304,6 +341,10 @@ export async function importRecords(
       patch["paid_amount"] = effectiveRecord.paid_amount;
     if (Number(previous.open_amount) !== effectiveRecord.open_amount)
       patch["open_amount"] = effectiveRecord.open_amount;
+    if (previous.paid_amount_known !== effectiveRecord.paid_amount_known)
+      patch["paid_amount_known"] = effectiveRecord.paid_amount_known;
+    if (previous.open_amount_known !== effectiveRecord.open_amount_known)
+      patch["open_amount_known"] = effectiveRecord.open_amount_known;
     if (previous.status !== effectiveRecord.status) patch["status"] = effectiveRecord.status;
     if (record.amount_kind === "original" && previous.unique_key !== record.unique_key)
       patch["unique_key"] = record.unique_key;
@@ -331,6 +372,8 @@ export async function importRecords(
       original_amount: Number(previous.original_amount),
       paid_amount: Number(previous.paid_amount),
       open_amount: Number(previous.open_amount),
+      paid_amount_known: previous.paid_amount_known,
+      open_amount_known: previous.open_amount_known,
       status: previous.status,
       source: previous.source,
       source_file: previous.source_file,

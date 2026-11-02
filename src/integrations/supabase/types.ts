@@ -19,8 +19,10 @@ export type Database = {
           id: string;
           issue_date: string | null;
           open_amount: number;
+          open_amount_known: boolean;
           original_amount: number;
           paid_amount: number;
+          paid_amount_known: boolean;
           payment_date: string | null;
           source: string;
           source_file: string | null;
@@ -40,8 +42,10 @@ export type Database = {
           id?: string;
           issue_date?: string | null;
           open_amount?: number;
+          open_amount_known?: boolean;
           original_amount?: number;
           paid_amount?: number;
+          paid_amount_known?: boolean;
           payment_date?: string | null;
           source: string;
           source_file?: string | null;
@@ -61,8 +65,10 @@ export type Database = {
           id?: string;
           issue_date?: string | null;
           open_amount?: number;
+          open_amount_known?: boolean;
           original_amount?: number;
           paid_amount?: number;
+          paid_amount_known?: boolean;
           payment_date?: string | null;
           source?: string;
           source_file?: string | null;

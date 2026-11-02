@@ -14,6 +14,8 @@ export interface ParsedRecord {
   original_amount: number;
   paid_amount: number;
   open_amount: number;
+  paid_amount_known: boolean;
+  open_amount_known: boolean;
   status: string;
   source: "BLING_RECEBER" | "BLING_PAGAR";
   source_file: string;
@@ -86,6 +88,7 @@ function mapStatus(
   const partial =
     type === "RECEITA" ? "PARCIALMENTE_RECEBIDO" : "PARCIALMENTE_PAGO";
 
+  if (s.includes("cancel")) return { status: "CANCELADO", paidFull: false };
   if (s.includes("parcial")) return { status: partial, paidFull: false };
   if (s.includes("pago") || s.includes("paga") || s.includes("recebid"))
     return { status: settled, paidFull: true };
@@ -243,6 +246,11 @@ export async function parseBlingPdf(
 
       const { status, paidFull } = mapStatus(statusRaw, kind ?? "RECEITA", dueDate);
       const paid = paidFull ? amount : 0;
+      const partial =
+        status === "PARCIALMENTE_RECEBIDO" || status === "PARCIALMENTE_PAGO";
+      const cancelled = status === "CANCELADO";
+      const paidAmountKnown = !partial;
+      const openAmountKnown = !partial || amountKind === "balance";
 
       const rec: ParsedRecord = {
         type: kind ?? "RECEITA",
@@ -256,7 +264,9 @@ export async function parseBlingPdf(
         payment_date: null,
         original_amount: amount,
         paid_amount: paid,
-        open_amount: Number((amount - paid).toFixed(2)),
+        open_amount: cancelled ? 0 : Number((amount - paid).toFixed(2)),
+        paid_amount_known: paidAmountKnown,
+        open_amount_known: openAmountKnown,
         status,
         source: (kind ?? "RECEITA") === "RECEITA" ? "BLING_RECEBER" : "BLING_PAGAR",
         source_file: file.name,

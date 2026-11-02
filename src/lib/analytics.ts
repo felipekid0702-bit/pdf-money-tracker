@@ -9,19 +9,21 @@ import { fromISO, resolvePeriod, toISO, type PeriodRange } from "./period";
  * ============================================================ */
 
 /** Estado normalizado, independente do rótulo original do Bling. */
-export type FinState = "REALIZADO" | "EM_ABERTO" | "VENCIDO";
+export type FinState = "REALIZADO" | "EM_ABERTO" | "VENCIDO" | "CANCELADO";
 
 export const money = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 const sum = (arr: number[]) => money(arr.reduce((a, b) => a + b, 0));
 
 /** open_amount efetivo — nunca negativo. */
 export function openOf(m: Movement): number {
+  if (m.open_amount_known === false) return 0;
   const o = Number(m.open_amount);
   if (isFinite(o) && o !== 0) return money(Math.max(0, o));
   return money(Math.max(0, (Number(m.original_amount) || 0) - (Number(m.paid_amount) || 0)));
 }
 
 export function paidOf(m: Movement): number {
+  if (m.paid_amount_known === false) return 0;
   return money(Math.max(0, Number(m.paid_amount) || 0));
 }
 
@@ -35,6 +37,7 @@ export function originalOf(m: Movement): number {
  */
 export function finState(m: Movement, today = todayISO()): FinState {
   const s = (m.status ?? "").toUpperCase();
+  if (s === "CANCELADO" || s === "CANCELADA") return "CANCELADO";
   if (s === "RECEBIDO" || s === "PAGO") return "REALIZADO";
   if (openOf(m) <= 0 && (paidOf(m) > 0 || s === "RECEBIDO" || s === "PAGO"))
     return "REALIZADO";
@@ -46,10 +49,18 @@ export function finState(m: Movement, today = todayISO()): FinState {
 /** Rótulo final exibido nas telas. */
 export function finStatusLabel(m: Movement, today = todayISO()): string {
   const st = finState(m, today);
+  if (st === "CANCELADO") return "Cancelado";
   const partiallySettled =
     paidOf(m) > 0 || m.status === "PARCIALMENTE_RECEBIDO" || m.status === "PARCIALMENTE_PAGO";
   if (st === "REALIZADO") return m.type === "RECEITA" ? "Recebido" : "Pago";
-  if (st === "VENCIDO") return partiallySettled ? "Vencido (parcial)" : "Vencido";
+  if (st === "VENCIDO")
+    return partiallySettled
+      ? m.open_amount_known === false
+        ? "Vencido (parcial, saldo pendente)"
+        : "Vencido (parcial)"
+      : "Vencido";
+  if (partiallySettled && m.open_amount_known === false)
+    return "Em aberto (parcial, saldo pendente)";
   return partiallySettled ? "Em aberto (parcial)" : "Em aberto";
 }
 
@@ -57,6 +68,7 @@ export const FIN_STATE_OPTIONS: { id: FinState; label: string }[] = [
   { id: "REALIZADO", label: "Recebido / Pago" },
   { id: "EM_ABERTO", label: "Em aberto" },
   { id: "VENCIDO", label: "Vencido" },
+  { id: "CANCELADO", label: "Cancelado" },
 ];
 
 /* ---------------- KPIs por tipo ---------------- */
@@ -73,6 +85,7 @@ export interface SideKpis {
   /** saldo em aberto vencido */
   overdue: number;
   overdueCount: number;
+  unknownOpenCount: number;
   avgTicket: number;
   maxSettled: number;
   maxOpen: number;
@@ -85,14 +98,17 @@ export function sideKpis(rows: Movement[], today = todayISO()): SideKpis {
     overdue = 0;
   let settledCount = 0,
     openCount = 0,
-    overdueCount = 0;
+    overdueCount = 0,
+    unknownOpenCount = 0;
   let maxSettled = 0,
     maxOpen = 0;
 
-  for (const m of rows) {
+  const activeRows = rows.filter((m) => finState(m, today) !== "CANCELADO");
+  for (const m of activeRows) {
     const st = finState(m, today);
     const o = openOf(m);
     const p = paidOf(m);
+    if (!m.open_amount_known) unknownOpenCount += 1;
     original += originalOf(m);
     settled += p;
     if (p > 0) {
@@ -111,9 +127,9 @@ export function sideKpis(rows: Movement[], today = todayISO()): SideKpis {
       if (o > maxOpen) maxOpen = o;
     }
   }
-  const realizedCount = rows.filter((m) => finState(m, today) === "REALIZADO").length;
+  const realizedCount = activeRows.filter((m) => finState(m, today) === "REALIZADO").length;
   return {
-    count: rows.length,
+    count: activeRows.length,
     original: money(original),
     settled: money(settled),
     settledCount: realizedCount || settledCount,
@@ -121,7 +137,8 @@ export function sideKpis(rows: Movement[], today = todayISO()): SideKpis {
     openCount,
     overdue: money(overdue),
     overdueCount,
-    avgTicket: rows.length ? money(original / rows.length) : 0,
+    unknownOpenCount,
+    avgTicket: activeRows.length ? money(original / activeRows.length) : 0,
     maxSettled: money(maxSettled),
     maxOpen: money(maxOpen),
   };
@@ -181,7 +198,7 @@ export function projectionForRange(
     outflow = 0,
     count = 0;
   for (const m of all) {
-    if (finState(m, today) === "REALIZADO") continue;
+    if (finState(m, today) === "REALIZADO" || finState(m, today) === "CANCELADO") continue;
     const d = m.due_date;
     if (!d) continue;
     if (range.from && d < range.from) continue;
@@ -272,7 +289,7 @@ export function aging(
   const out: AgingBucket[] = defs.map(([label]) => ({ label, amount: 0, count: 0 }));
   for (const m of all) {
     if (m.type !== type) continue;
-    if (finState(m, today) === "REALIZADO") continue;
+    if (finState(m, today) === "REALIZADO" || finState(m, today) === "CANCELADO") continue;
     const o = openOf(m);
     if (o <= 0 || !m.due_date) continue;
     const diff = daysBetween(today, m.due_date);
@@ -306,6 +323,7 @@ export function rankParties(
   const map = new Map<string, PartyRow>();
   let grand = 0;
   for (const m of rows) {
+    if (finState(m, today) === "CANCELADO") continue;
     if (m.type !== type) continue;
     const name = m.counterparty?.trim() || "(sem identificação)";
     const cur =
@@ -396,6 +414,7 @@ export function timeSeries(
 ): SeriesPoint[] {
   const map = new Map<string, SeriesPoint>();
   for (const m of rows) {
+    if (finState(m, today) === "CANCELADO") continue;
     if (!m.due_date) continue;
     const key = bucketKey(m.due_date, g);
     const cur =
@@ -428,6 +447,7 @@ export function statusDistribution(rows: Movement[], today = todayISO()) {
     vencido = 0;
   for (const m of rows) {
     const st = finState(m, today);
+    if (st === "CANCELADO") continue;
     if (st === "REALIZADO") {
       if (m.type === "RECEITA") recebido = money(recebido + paidOf(m));
       else pago = money(pago + paidOf(m));
@@ -462,6 +482,7 @@ export function summarizeByDay(
 ): Map<string, DaySummary> {
   const map = new Map<string, DaySummary>();
   for (const m of all) {
+    if (finState(m, today) === "CANCELADO") continue;
     const key = (m.due_date ?? "").slice(0, 10);
     if (!key) continue;
     const cur =
@@ -570,6 +591,7 @@ export function dailyFlow(
     if (buckets.size > 800) break;
   }
   for (const m of all) {
+    if (finState(m, today) === "CANCELADO") continue;
     const d = m.due_date;
     if (!d) continue;
     const b = buckets.get(d);
@@ -635,6 +657,7 @@ export function dayBlock(all: Movement[], date: string, today = todayISO()): Day
     topSuppliers: [],
   };
   for (const m of all) {
+    if (finState(m, today) === "CANCELADO") continue;
     if (m.due_date !== date) continue;
     const st = finState(m, today);
     const name = m.counterparty?.trim() || "(sem identificação)";

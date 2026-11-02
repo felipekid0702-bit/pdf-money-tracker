@@ -41,6 +41,7 @@ interface MovementRow {
   counterparty: string | null;
   due_date: string | null;
   open_amount: number | string;
+  open_amount_known: boolean;
   status: string;
   sync_state: "current" | "review";
 }
@@ -374,7 +375,7 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
   const { data: movement, error: movementError } = await supabaseAdmin
     .from("financial_movements")
     .select(
-      "id,type,document,counterparty,counterparty_document,due_date,open_amount,status,sync_state",
+      "id,type,document,counterparty,counterparty_document,due_date,open_amount,open_amount_known,status,sync_state",
     )
     .eq("id", body.movementId)
     .maybeSingle();
@@ -392,6 +393,12 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
         error:
           "Envio bloqueado: o título não consta no último PDF importado e precisa de revisão no Bling.",
       },
+      409,
+    );
+  }
+  if (!row.open_amount_known) {
+    return jsonResponse(
+      { error: "Envio bloqueado: o saldo deste título parcial não consta no relatório importado." },
       409,
     );
   }
