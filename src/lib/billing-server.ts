@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { PartialBalanceAdjustment } from "./data";
 import type { ParsedRecord } from "./pdf-parser";
 
 const SESSION_COOKIE = "fp-finance-session";
@@ -44,6 +45,11 @@ interface ImportRecordsBody {
   rejected: number;
 }
 
+interface SavePartialBalancesBody {
+  action: "save_partial_balances";
+  adjustments: PartialBalanceAdjustment[];
+}
+
 interface ClearFinancialDataBody {
   action: "clear_financial_data";
 }
@@ -53,6 +59,7 @@ type PostBody =
   | SendBody
   | ImportContactsBody
   | ImportRecordsBody
+  | SavePartialBalancesBody
   | ClearFinancialDataBody
   | { action: "logout" };
 
@@ -252,6 +259,52 @@ function isImportRecordsBody(value: unknown): value is ImportRecordsBody {
     Number(value["found"]) >= value["records"].length &&
     Number(value["rejected"]) >= 0
   );
+}
+
+function isSavePartialBalancesBody(value: unknown): value is SavePartialBalancesBody {
+  return (
+    isObject(value) &&
+    value["action"] === "save_partial_balances" &&
+    Array.isArray(value["adjustments"]) &&
+    value["adjustments"].length > 0 &&
+    value["adjustments"].length <= 1_000 &&
+    value["adjustments"].every(
+      (adjustment) =>
+        isObject(adjustment) &&
+        typeof adjustment["movementId"] === "string" &&
+        adjustment["movementId"].length <= 128 &&
+        typeof adjustment["openAmount"] === "number" &&
+        Number.isFinite(adjustment["openAmount"]),
+    )
+  );
+}
+
+async function getFinanceData(action: "movements" | "partial_balances"): Promise<Response> {
+  if (!hasAdminDatabaseConfig()) {
+    return jsonResponse(
+      { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
+      503,
+    );
+  }
+  try {
+    const data = await import("@/lib/data");
+    const result =
+      action === "movements"
+        ? await data.fetchAllMovementsFromDatabase(supabaseAdmin)
+        : await data.fetchPendingPartialBalancesFromDatabase(supabaseAdmin);
+    return jsonResponse(result);
+  } catch (error) {
+    console.error(`[billing] falha ao carregar ${action}`, error);
+    return jsonResponse(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível carregar os dados financeiros.",
+      },
+      500,
+    );
+  }
 }
 
 function zohoCookieHeader(
@@ -1082,6 +1135,12 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
     const action = new URL(request.url).searchParams.get("action");
     if (action === "zoho_connect") return startZohoAuthorization(request);
     if (action === "events") return getBillingEvents(request);
+    if (action === "movements" || action === "partial_balances") {
+      if (!authenticatedUsername(request)) {
+        return jsonResponse({ error: "Entre na área de cobrança antes de continuar." }, 401);
+      }
+      return getFinanceData(action);
+    }
     return jsonResponse({
       authenticated: !!authenticatedUsername(request),
       zohoConnected: !!readCookie(request, ZOHO_REFRESH_TOKEN_COOKIE),
@@ -1193,6 +1252,32 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
 
   if (!authenticatedUsername(request)) {
     return jsonResponse({ error: "Entre na área de cobrança antes de continuar." }, 401);
+  }
+
+  if (body.action === "save_partial_balances") {
+    if (!isSavePartialBalancesBody(parsedBody)) {
+      return jsonResponse({ error: "Os ajustes de saldo parcial são inválidos." }, 400);
+    }
+    if (!hasAdminDatabaseConfig()) {
+      return jsonResponse(
+        { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
+        503,
+      );
+    }
+    try {
+      const { savePartialBalanceAdjustmentsToDatabase } = await import("@/lib/data");
+      await savePartialBalanceAdjustmentsToDatabase(body.adjustments, supabaseAdmin);
+      return jsonResponse({ saved: true });
+    } catch (error) {
+      console.error("[billing] falha ao salvar saldos parciais", error);
+      return jsonResponse(
+        {
+          error:
+            error instanceof Error ? error.message : "Não foi possível salvar os saldos parciais.",
+        },
+        500,
+      );
+    }
   }
 
   if (body.action === "import_records") {

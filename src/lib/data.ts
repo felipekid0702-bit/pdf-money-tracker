@@ -1,14 +1,29 @@
-import { supabase } from "@/integrations/supabase/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { todayISO, type Movement } from "./finance";
 import type { ParsedRecord } from "./pdf-parser";
 
 export async function fetchAllMovements(): Promise<Movement[]> {
+  const response = await fetch("/api/billing?action=movements");
+  const result = (await response.json()) as Movement[] | { error?: string };
+  if (!response.ok) {
+    throw new Error(
+      !Array.isArray(result) ? (result.error ?? "Falha ao carregar os títulos financeiros.") : "",
+    );
+  }
+  if (!Array.isArray(result)) {
+    throw new Error("A resposta do servidor para os títulos financeiros é inválida.");
+  }
+  return result;
+}
+
+export async function fetchAllMovementsFromDatabase(
+  database: SupabaseClient<Database>,
+): Promise<Movement[]> {
   const pageSize = 1000;
   const columns =
     "id,unique_key,paid_amount,open_amount,paid_amount_known,open_amount_known,status,payment_date,issue_date,description,counterparty,counterparty_document,document,source_file,type,source,original_amount,due_date,sync_state";
-  const firstPage = await supabase
+  const firstPage = await database
     .from("financial_movements")
     .select(columns, { count: "exact" })
     .order("due_date", { ascending: true })
@@ -29,7 +44,7 @@ export async function fetchAllMovements(): Promise<Movement[]> {
     );
     const pageResults = await Promise.all(
       pageIndexes.map((pageIndex) =>
-        supabase
+        database
           .from("financial_movements")
           .select(columns)
           .order("due_date", { ascending: true })
@@ -51,7 +66,7 @@ export async function fetchAllMovements(): Promise<Movement[]> {
     );
   }
 
-  const { count: currentCount, error: countError } = await supabase
+  const { count: currentCount, error: countError } = await database
     .from("financial_movements")
     .select("id", { count: "exact", head: true });
   if (countError) throw countError;
@@ -549,7 +564,23 @@ export interface PartialBalanceMovement {
 }
 
 export async function fetchPendingPartialBalances(): Promise<PartialBalanceMovement[]> {
-  const { data, error } = await supabase
+  const response = await fetch("/api/billing?action=partial_balances");
+  const result = (await response.json()) as PartialBalanceMovement[] | { error?: string };
+  if (!response.ok) {
+    throw new Error(
+      !Array.isArray(result) ? (result.error ?? "Falha ao carregar os saldos parciais.") : "",
+    );
+  }
+  if (!Array.isArray(result)) {
+    throw new Error("A resposta do servidor para os saldos parciais é inválida.");
+  }
+  return result;
+}
+
+export async function fetchPendingPartialBalancesFromDatabase(
+  database: SupabaseClient<Database>,
+): Promise<PartialBalanceMovement[]> {
+  const { data, error } = await database
     .from("financial_movements")
     .select("id,document,counterparty,due_date,original_amount,status")
     .in("status", ["PARCIALMENTE_RECEBIDO", "PARCIALMENTE_PAGO"])
@@ -566,6 +597,21 @@ export async function fetchPendingPartialBalances(): Promise<PartialBalanceMovem
 export async function savePartialBalanceAdjustments(
   adjustments: PartialBalanceAdjustment[],
 ): Promise<void> {
+  const response = await fetch("/api/billing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "save_partial_balances", adjustments }),
+  });
+  const result = (await response.json()) as { error?: string };
+  if (!response.ok) {
+    throw new Error(result.error ?? "Falha ao salvar os saldos parciais.");
+  }
+}
+
+export async function savePartialBalanceAdjustmentsToDatabase(
+  adjustments: PartialBalanceAdjustment[],
+  database: SupabaseClient<Database>,
+): Promise<void> {
   if (!adjustments.length) return;
 
   const ids = adjustments.map((adjustment) => adjustment.movementId);
@@ -573,7 +619,7 @@ export async function savePartialBalanceAdjustments(
     throw new Error("A lista de títulos parciais contém registros repetidos.");
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await database
     .from("financial_movements")
     .select("id,original_amount,status,open_amount_known")
     .in("id", ids);
@@ -616,7 +662,7 @@ export async function savePartialBalanceAdjustments(
   });
 
   for (const adjustment of validated) {
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await database
       .from("financial_movements")
       .update({
         manual_paid_amount: adjustment.paidAmount,
