@@ -3,31 +3,70 @@ import { todayISO, type Movement } from "./finance";
 import type { ParsedRecord } from "./pdf-parser";
 
 export async function fetchAllMovements(): Promise<Movement[]> {
-  const all: Movement[] = [];
   const pageSize = 1000;
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from("financial_movements")
-      .select(
-        "id,unique_key,paid_amount,open_amount,paid_amount_known,open_amount_known,status,payment_date,issue_date,description,counterparty,counterparty_document,document,source_file,type,source,original_amount,due_date,sync_state",
-      )
-      .order("due_date", { ascending: true })
-      .range(from, from + pageSize - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as unknown as Movement[];
-    all.push(
-      ...rows.map((row) => ({
-        ...row,
-        original_amount: Number(row.original_amount),
-        paid_amount: Number(row.paid_amount),
-        open_amount: Number(row.open_amount),
-        paid_amount_known: Boolean(row.paid_amount_known),
-        open_amount_known: Boolean(row.open_amount_known),
-      })),
-    );
-    if (rows.length < pageSize) break;
+  const columns =
+    "id,unique_key,paid_amount,open_amount,paid_amount_known,open_amount_known,status,payment_date,issue_date,description,counterparty,counterparty_document,document,source_file,type,source,original_amount,due_date,sync_state";
+  const firstPage = await supabase
+    .from("financial_movements")
+    .select(columns, { count: "exact" })
+    .order("due_date", { ascending: true })
+    .order("id", { ascending: true })
+    .range(0, pageSize - 1);
+  if (firstPage.error) throw firstPage.error;
+  if (firstPage.count === null) {
+    throw new Error("Não foi possível determinar a quantidade total de títulos financeiros.");
   }
-  return all;
+
+  const pageCount = Math.ceil(firstPage.count / pageSize);
+  const pages = [firstPage.data ?? []];
+  const maxConcurrentPages = 4;
+  for (let firstPageIndex = 1; firstPageIndex < pageCount; firstPageIndex += maxConcurrentPages) {
+    const pageIndexes = Array.from(
+      { length: Math.min(maxConcurrentPages, pageCount - firstPageIndex) },
+      (_, index) => firstPageIndex + index,
+    );
+    const pageResults = await Promise.all(
+      pageIndexes.map((pageIndex) =>
+        supabase
+          .from("financial_movements")
+          .select(columns)
+          .order("due_date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(pageIndex * pageSize, (pageIndex + 1) * pageSize - 1),
+      ),
+    );
+    for (const result of pageResults) {
+      if (result.error) throw result.error;
+      pages.push(result.data ?? []);
+    }
+  }
+
+  const rows = pages.flat() as unknown as Movement[];
+  const uniqueIds = new Set(rows.map((row) => row.id));
+  if (rows.length !== firstPage.count || uniqueIds.size !== firstPage.count) {
+    throw new Error(
+      "Os títulos financeiros foram alterados durante o carregamento. Atualize a tela para tentar novamente.",
+    );
+  }
+
+  const { count: currentCount, error: countError } = await supabase
+    .from("financial_movements")
+    .select("id", { count: "exact", head: true });
+  if (countError) throw countError;
+  if (currentCount !== firstPage.count) {
+    throw new Error(
+      "A quantidade de títulos financeiros mudou durante o carregamento. Atualize a tela para tentar novamente.",
+    );
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    original_amount: Number(row.original_amount),
+    paid_amount: Number(row.paid_amount),
+    open_amount: Number(row.open_amount),
+    paid_amount_known: Boolean(row.paid_amount_known),
+    open_amount_known: Boolean(row.open_amount_known),
+  }));
 }
 
 export interface ImportSummary {

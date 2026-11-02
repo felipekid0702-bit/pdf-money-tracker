@@ -9,11 +9,19 @@ export function useRealtimeMovements() {
   useEffect(() => {
     let movementsTimer: ReturnType<typeof setTimeout> | null = null;
     let eventsTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastMovementsInvalidation = 0;
+    let movementsDirty = false;
     const invalidate = () => {
-      if (movementsTimer) clearTimeout(movementsTimer);
+      movementsDirty = true;
+      if (movementsTimer) return;
+      const delay = Math.max(0, 5_000 - (Date.now() - lastMovementsInvalidation));
       movementsTimer = setTimeout(() => {
+        movementsTimer = null;
+        if (!movementsDirty) return;
+        movementsDirty = false;
+        lastMovementsInvalidation = Date.now();
         void qc.invalidateQueries({ queryKey: ["movements"] });
-      }, 800);
+      }, delay);
     };
 
     const channel = supabase

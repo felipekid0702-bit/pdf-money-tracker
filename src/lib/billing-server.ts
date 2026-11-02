@@ -6,6 +6,7 @@ const SESSION_SECONDS = 8 * 60 * 60;
 const MAX_CONTACTS_BYTES = 1_000_000;
 const MAX_REQUEST_BYTES = 5_000_000;
 const BILLING_EVENTS_PAGE_SIZE = 1_000;
+const BILLING_HISTORY_MOVEMENT_PAGE_SIZE = 1_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ZOHO_OAUTH_STATE_COOKIE = "fp-zoho-oauth-state";
 const ZOHO_REFRESH_TOKEN_COOKIE = "fp-zoho-refresh-token";
@@ -853,6 +854,56 @@ function validISODate(value: string | null): value is string {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function chunks<T>(values: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
+}
+
+interface BillingHistoryMovement {
+  id: string;
+  document: string | null;
+  counterparty: string | null;
+  counterparty_document: string | null;
+  due_date: string | null;
+  original_amount: number | string;
+}
+
+async function findBillingHistoryMovements(
+  field: "document" | "counterparty_document",
+  values: string[],
+): Promise<BillingHistoryMovement[]> {
+  const matches = new Map<string, BillingHistoryMovement>();
+  for (const valueChunk of chunks([...new Set(values)], 50)) {
+    for (let offset = 0; ; offset += BILLING_HISTORY_MOVEMENT_PAGE_SIZE) {
+      let query = supabaseAdmin
+        .from("financial_movements")
+        .select("id,document,counterparty,counterparty_document,due_date,original_amount")
+        .eq("type", "RECEITA")
+        .order("id", { ascending: true })
+        .range(offset, offset + BILLING_HISTORY_MOVEMENT_PAGE_SIZE - 1);
+      query =
+        field === "document"
+          ? query.in("document", valueChunk)
+          : query.in("counterparty_document", valueChunk);
+      const { data, error } = await query;
+      if (error) {
+        console.error("[billing] falha ao conciliar detalhes do histórico", error);
+        throw new Error("Não foi possível conciliar os títulos do histórico.");
+      }
+      for (const row of data ?? []) matches.set(row.id, row);
+      if ((data ?? []).length < BILLING_HISTORY_MOVEMENT_PAGE_SIZE) break;
+    }
+  }
+  return [...matches.values()];
+}
+
 async function getBillingEvents(request: Request): Promise<Response> {
   if (!authenticatedUsername(request)) {
     return jsonResponse({ error: "Entre na área de cobrança para consultar o histórico." }, 401);
@@ -903,7 +954,52 @@ async function getBillingEvents(request: Request): Promise<Response> {
     events.push(...(data ?? []));
     if ((data ?? []).length < BILLING_EVENTS_PAGE_SIZE) break;
   }
-  return jsonResponse({ events });
+
+  const documents = new Set<string>();
+  const counterpartyDocuments = new Set<string>();
+  for (const event of events) {
+    const details = Array.isArray(event.title_details) ? event.title_details : [];
+    const needsMovementDetails =
+      details.length < event.title_count ||
+      details.some(
+        (detail) =>
+          !isJsonRecord(detail) ||
+          typeof detail["client"] !== "string" ||
+          typeof detail["document"] !== "string" ||
+          typeof detail["amount"] !== "number" ||
+          typeof detail["due_date"] !== "string",
+      );
+    if (!needsMovementDetails) continue;
+
+    for (const document of event.title_documents ?? []) {
+      if (typeof document === "string" && document) documents.add(document);
+    }
+    for (const detail of details) {
+      if (!isJsonRecord(detail)) continue;
+      if (typeof detail["document"] === "string" && detail["document"]) {
+        documents.add(detail["document"]);
+      }
+      if (typeof detail["cnpj"] === "string" && detail["cnpj"]) {
+        counterpartyDocuments.add(detail["cnpj"]);
+      }
+    }
+  }
+
+  try {
+    const [documentMatches, counterpartyMatches] = await Promise.all([
+      findBillingHistoryMovements("document", [...documents]),
+      findBillingHistoryMovements("counterparty_document", [...counterpartyDocuments]),
+    ]);
+    const movements = new Map<string, BillingHistoryMovement>();
+    for (const row of [...documentMatches, ...counterpartyMatches]) movements.set(row.id, row);
+    return jsonResponse({ events, movements: [...movements.values()] });
+  } catch (error) {
+    console.error("[billing] falha ao completar o histórico de cobranças", error);
+    return jsonResponse(
+      { error: "Não foi possível carregar todos os dados do histórico de cobranças." },
+      500,
+    );
+  }
 }
 
 export async function handleBillingRequest(request: Request): Promise<Response> {

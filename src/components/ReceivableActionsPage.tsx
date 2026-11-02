@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { PeriodFilter } from "@/components/PeriodFilter";
-import { useMovements } from "@/hooks/useMovements";
 import { useReceivableEmailEvents } from "@/hooks/useReceivableEmailEvents";
-import { formatBRL, formatDate, type Movement, type ReceivableEmailEvent } from "@/lib/finance";
+import { formatBRL, formatDate, type ReceivableEmailEvent } from "@/lib/finance";
 import { useBillingSession } from "@/lib/billing-session";
 import { usePeriod } from "@/lib/period";
 
@@ -21,32 +20,22 @@ interface TitleDetail {
   xml_file: string | null;
 }
 
-interface EventTitleRow {
-  event: ReceivableEmailEvent;
-  title: TitleDetail;
-  index: number;
-}
-
 export function ReceivableActionsPage() {
   const { label, range } = usePeriod();
   const { authenticated } = useBillingSession();
   const {
-    data: events = [],
+    data: history,
     isLoading: eventsLoading,
     error,
   } = useReceivableEmailEvents(range, authenticated);
-  const {
-    data: movements = [],
-    isLoading: movementsLoading,
-    error: movementsError,
-  } = useMovements();
   const [actionFilter, setActionFilter] = useState<ActionFilter>("");
 
   const rows = useMemo(() => {
-    const receivableByDocument = new Map<string, Movement[]>();
-    const receivableByCnpj = new Map<string, Movement[]>();
+    const events = history?.events ?? [];
+    const movements = history?.movements ?? [];
+    const receivableByDocument = new Map<string, (typeof movements)[number][]>();
+    const receivableByCnpj = new Map<string, (typeof movements)[number][]>();
     for (const movement of movements) {
-      if (movement.type !== "RECEITA") continue;
       if (movement.document) {
         const key = normalizeDocument(movement.document);
         if (key) {
@@ -115,7 +104,7 @@ export function ReceivableActionsPage() {
         });
         return expanded;
       });
-  }, [events, movements, actionFilter]);
+  }, [history, actionFilter]);
 
   return (
     <AppLayout
@@ -158,7 +147,7 @@ export function ReceivableActionsPage() {
             Entre pelo controle “Acesso de cobrança” no cabeçalho para consultar o histórico de
             cobranças e boletos enviados.
           </p>
-        ) : eventsLoading || movementsLoading ? (
+        ) : eventsLoading ? (
           <p className="px-4 py-5 text-sm text-muted-foreground">Carregando registros de envio…</p>
         ) : error ? (
           <p role="alert" className="px-4 py-5 text-sm text-destructive">
@@ -195,11 +184,6 @@ export function ReceivableActionsPage() {
               </tbody>
             </table>
           </div>
-        )}
-        {movementsError && (
-          <p role="alert" className="border-t border-border px-4 py-3 text-xs text-destructive">
-            Não foi possível conciliar os títulos com Contas a Receber: {movementsError.message}
-          </p>
         )}
       </section>
     </AppLayout>
