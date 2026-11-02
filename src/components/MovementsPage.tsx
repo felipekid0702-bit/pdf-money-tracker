@@ -430,7 +430,7 @@ function billingActionFor(dueDate: string | null, today: string): string | null 
       86_400_000,
   );
   if ([14, 7, 1].includes(daysUntil)) return `Aviso D-${daysUntil}`;
-  if (daysUntil <= -16) return "Cobrar vencido";
+  if (daysUntil < 0) return "Enviar cobrança";
   return null;
 }
 

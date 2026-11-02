@@ -899,7 +899,7 @@ O item **Ações de Cobrança**, separado de **Contas a Receber** na navegação
 
 ## Avisos e cobranças via Microsoft Graph
 
-Em **Contas a Receber**, o botão de e-mail dispara diretamente pelo servidor Vercel: não depende do painel local nem do Outlook. O app envia um título por e-mail, usando o saldo em aberto. São permitidos os marcos D-14, D-7 e D-1 e cobranças com mais de 15 dias de atraso; o servidor valida novamente o título, destinatário, saldo e período antes de enviar. A chave idempotente evita repetir o mesmo título no mesmo marco ou semana.
+Em **Contas a Receber**, o botão de e-mail aparece automaticamente nos marcos D-14, D-7 e D-1 e a partir do primeiro dia de atraso. Ao acioná-lo, o servidor Vercel envia o e-mail diretamente pelo Microsoft Graph, sem colocá-lo em uma fila para processamento posterior; não depende do painel local nem do Outlook. O app envia um título por e-mail, usando o saldo em aberto, e grava a solicitação e o histórico do envio, além de salvar uma cópia em Itens Enviados. O servidor valida novamente o título, destinatário, saldo e período antes de enviar. A chave idempotente evita repetir o mesmo título no mesmo marco ou semana.
 
 Antes de habilitar o fluxo:
 

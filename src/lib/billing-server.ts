@@ -224,15 +224,17 @@ function buildMail(
   }
 
   const overdueText =
-    daysOverdue <= 30
-      ? "16 a 30 dias"
-      : daysOverdue <= 45
-        ? "31 a 45 dias"
-        : daysOverdue <= 60
-          ? "46 a 60 dias"
-          : daysOverdue <= 90
-            ? "61 a 90 dias"
-            : "mais de 90 dias";
+    daysOverdue <= 15
+      ? "1 a 15 dias"
+      : daysOverdue <= 30
+        ? "16 a 30 dias"
+        : daysOverdue <= 45
+          ? "31 a 45 dias"
+          : daysOverdue <= 60
+            ? "46 a 60 dias"
+            : daysOverdue <= 90
+              ? "61 a 90 dias"
+              : "mais de 90 dias";
 
   return {
     actionType: "cobranca_vencido",
@@ -423,11 +425,10 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
   const untilDue = daysUntil(row.due_date, today);
   const reminderDays = [14, 7, 1].includes(untilDue) ? untilDue : null;
   const daysOverdue = -untilDue;
-  if (reminderDays === null && daysOverdue <= 15) {
+  if (reminderDays === null && daysOverdue <= 0) {
     return jsonResponse(
       {
-        error:
-          "Este título não está em um marco de aviso (14, 7 ou 1 dia) nem ultrapassou 15 dias de atraso.",
+        error: "Este título não está vencido nem em um marco de aviso (14, 7 ou 1 dia).",
       },
       409,
     );
@@ -565,15 +566,17 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
     aging_ranges:
       reminderDays === null
         ? [
-            daysOverdue <= 30
-              ? "16-30"
-              : daysOverdue <= 45
-                ? "31-45"
-                : daysOverdue <= 60
-                  ? "46-60"
-                  : daysOverdue <= 90
-                    ? "61-90"
-                    : "90+",
+            daysOverdue <= 15
+              ? "1-15"
+              : daysOverdue <= 30
+                ? "16-30"
+                : daysOverdue <= 45
+                  ? "31-45"
+                  : daysOverdue <= 60
+                    ? "46-60"
+                    : daysOverdue <= 90
+                      ? "61-90"
+                      : "90+",
           ]
         : [],
     title_details: [
