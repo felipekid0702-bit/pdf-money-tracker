@@ -9,6 +9,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ZOHO_OAUTH_STATE_COOKIE = "fp-zoho-oauth-state";
 const ZOHO_REFRESH_TOKEN_COOKIE = "fp-zoho-refresh-token";
 const ZOHO_OAUTH_SCOPES = "ZohoMail.accounts.READ,ZohoMail.messages.CREATE";
+const ZOHO_REDIRECT_URI = "https://pdf-money-tracker.vercel.app/api/zoho/callback";
+const ZOHO_APP_ORIGIN = "https://pdf-money-tracker.vercel.app";
 
 function hasAdminDatabaseConfig(): boolean {
   return !!process.env["SUPABASE_URL"] && !!process.env["SUPABASE_SERVICE_ROLE_KEY"];
@@ -358,6 +360,9 @@ function settingsRedirect(request: Request, result: string, headers?: Headers): 
 }
 
 function startZohoAuthorization(request: Request): Response {
+  if (new URL(request.url).origin !== ZOHO_APP_ORIGIN) {
+    return Response.redirect(`${ZOHO_APP_ORIGIN}/configuracoes?zoho=use-primary-domain`, 303);
+  }
   if (!authenticatedUsername(request)) {
     return jsonResponse({ error: "Entre na área de cobrança antes de conectar o Zoho Mail." }, 401);
   }
@@ -371,14 +376,12 @@ function startZohoAuthorization(request: Request): Response {
       503,
     );
   }
-
   const state = randomBytes(32).toString("base64url");
-  const redirectUri = new URL("/api/zoho/callback", request.url).toString();
   const authorizationUrl = new URL("https://accounts.zoho.com/oauth/v2/auth");
   authorizationUrl.search = new URLSearchParams({
     client_id: credentials.clientId,
     response_type: "code",
-    redirect_uri: redirectUri,
+    redirect_uri: ZOHO_REDIRECT_URI,
     scope: ZOHO_OAUTH_SCOPES,
     access_type: "offline",
     prompt: "consent",
@@ -417,7 +420,6 @@ export async function handleZohoOAuthCallback(request: Request): Promise<Respons
   const credentials = zohoMailCredentials();
   if (!credentials) return settingsRedirect(request, "not-configured", headers);
 
-  const redirectUri = new URL("/api/zoho/callback", request.url).toString();
   try {
     const response = await fetch("https://accounts.zoho.com/oauth/v2/token", {
       method: "POST",
@@ -427,7 +429,7 @@ export async function handleZohoOAuthCallback(request: Request): Promise<Respons
         grant_type: "authorization_code",
         client_id: credentials.clientId,
         client_secret: credentials.clientSecret,
-        redirect_uri: redirectUri,
+        redirect_uri: ZOHO_REDIRECT_URI,
       }),
     });
     if (!response.ok) {

@@ -54,6 +54,8 @@ function Configuracoes() {
       "not-configured": "A integração Zoho não está configurada na Vercel.",
       "authorization-failed":
         "Não foi possível concluir a autorização Zoho. Verifique a aplicação e as permissões.",
+      "use-primary-domain":
+        "Para conectar o Zoho, abra o FP Financeiro pelo endereço pdf-money-tracker.vercel.app e entre novamente.",
     };
     setZohoMessage(messages[result] ?? "Não foi possível conectar a caixa Zoho.");
     const cleanUrl = new URL(window.location.href);
