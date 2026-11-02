@@ -29,6 +29,8 @@ interface LoginBody {
 interface SendBody {
   action: "send";
   movementId: string;
+  recipientEmail: string;
+  ccEmail: string;
 }
 
 interface ImportContactsBody {
@@ -68,6 +70,7 @@ interface MovementRow {
   type: string;
   document: string | null;
   counterparty: string | null;
+  counterparty_document: string | null;
   due_date: string | null;
   open_amount: number | string;
   open_amount_known: boolean;
@@ -85,6 +88,15 @@ interface ContactImportRow {
   counterparty_name: string;
   email: string;
   cc: string;
+}
+
+interface BillingRecipientHistory {
+  id: string;
+  action_type: string;
+  recipient_email: string | null;
+  title_documents: string[];
+  title_details: unknown;
+  sent_at: string;
 }
 
 interface ZohoOAuthToken {
@@ -649,13 +661,147 @@ async function importContacts(source: unknown): Promise<Response> {
   return jsonResponse({ imported: contacts.length, rejected: rejectedKeys.length });
 }
 
-async function sendBillingEmail(body: SendBody, request: Request): Promise<Response> {
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      body.movementId,
-    )
-  ) {
+function validMovementId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
+}
+
+function documentMatchKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .replace(/\d+/g, (digits) => digits.replace(/^0+(?=\d)/, ""));
+}
+
+async function findPreviousRecipients(
+  movement: Pick<MovementRow, "counterparty" | "counterparty_document" | "document">,
+): Promise<string[]> {
+  const recipients = new Set<string>();
+  const pageSize = 1_000;
+  const customerKey = normalizeName(movement.counterparty ?? "");
+  const customerDocument = (movement.counterparty_document ?? "").replace(/\D/g, "");
+  const documentKey = movement.document ? documentMatchKey(movement.document) : "";
+
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabaseAdmin
+      .from("receivable_email_events")
+      .select("id,action_type,recipient_email,title_documents,title_details,sent_at")
+      .in("action_type", ["cobranca_vencido", "aviso_vencimento"])
+      .order("sent_at", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    if (error) {
+      console.error("[billing] falha ao consultar destinatários anteriores", error);
+      throw new Error("Não foi possível consultar os destinatários usados anteriormente.");
+    }
+
+    for (const event of (data ?? []) as BillingRecipientHistory[]) {
+      const details = Array.isArray(event.title_details) ? event.title_details : [];
+      const customerMatches = details.map((value) => {
+        if (!isJsonRecord(value)) return null;
+        const detailDocument =
+          typeof value["cnpj"] === "string" ? value["cnpj"].replace(/\D/g, "") : "";
+        const detailName =
+          typeof value["client"] === "string" ? normalizeName(value["client"]) : "";
+        if (customerDocument && detailDocument) return customerDocument === detailDocument;
+        if (customerKey && detailName) return detailName === customerKey;
+        return null;
+      });
+      const sameCustomer = customerMatches.some((matches) => matches === true);
+      const conflictingCustomer = customerMatches.some((matches) => matches === false);
+      const sameTitle =
+        !!documentKey &&
+        (event.title_documents ?? []).some(
+          (document) => documentMatchKey(document) === documentKey,
+        );
+      if ((!sameCustomer && !sameTitle) || conflictingCustomer) continue;
+
+      const addresses = validEmailList(event.recipient_email ?? "");
+      for (const address of addresses ?? []) recipients.add(address);
+    }
+    if ((data ?? []).length < pageSize) break;
+  }
+
+  return [...recipients];
+}
+
+async function getBillingRecipient(request: Request): Promise<Response> {
+  if (!authenticatedUsername(request)) {
+    return jsonResponse(
+      { error: "Entre na área de cobrança para consultar os destinatários." },
+      401,
+    );
+  }
+  if (!hasAdminDatabaseConfig()) {
+    return jsonResponse(
+      { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
+      503,
+    );
+  }
+  const movementId = new URL(request.url).searchParams.get("movementId");
+  if (!validMovementId(movementId)) {
     return jsonResponse({ error: "Identificador do título inválido." }, 400);
+  }
+
+  const { data: movement, error: movementError } = await supabaseAdmin
+    .from("financial_movements")
+    .select("id,type,document,counterparty,counterparty_document")
+    .eq("id", movementId)
+    .maybeSingle();
+  if (movementError) {
+    console.error("[billing] falha ao consultar dados do destinatário", movementError);
+    return jsonResponse({ error: "Não foi possível consultar o cliente do título." }, 500);
+  }
+  if (!movement || movement.type !== "RECEITA" || !movement.counterparty) {
+    return jsonResponse({ error: "Cliente do título não encontrado." }, 404);
+  }
+
+  const matchKey = normalizeName(movement.counterparty);
+  let contact: ContactRow | null;
+  let previousRecipients: string[];
+  try {
+    const [contactResult, historyRecipients] = await Promise.all([
+      supabaseAdmin
+        .from("receivable_contacts")
+        .select("email,cc")
+        .eq("match_key", matchKey)
+        .maybeSingle(),
+      findPreviousRecipients(movement),
+    ]);
+    if (contactResult.error) {
+      console.error("[billing] falha ao consultar contato salvo", contactResult.error);
+      return jsonResponse({ error: "Não foi possível consultar o contato salvo." }, 500);
+    }
+    contact = contactResult.data as ContactRow | null;
+    previousRecipients = historyRecipients;
+  } catch (error) {
+    console.error("[billing] falha ao carregar destinatários de cobrança", error);
+    return jsonResponse(
+      { error: "Não foi possível carregar os endereços de cobrança anteriores." },
+      500,
+    );
+  }
+
+  const savedRecipients = contact ? validEmailList(contact.email) : null;
+  const recipients = [...new Set([...(savedRecipients ?? []), ...previousRecipients])];
+  return jsonResponse({
+    recipientEmail: savedRecipients?.join("; ") ?? previousRecipients.join("; "),
+    ccEmail: contact?.cc ?? "",
+    previousRecipients: recipients,
+  });
+}
+
+async function sendBillingEmail(body: SendBody, request: Request): Promise<Response> {
+  if (!validMovementId(body.movementId)) {
+    return jsonResponse({ error: "Identificador do título inválido." }, 400);
+  }
+  const recipients = validEmailList(body.recipientEmail);
+  const cc = body.ccEmail === "" ? [] : validEmailList(body.ccEmail);
+  if (!recipients || cc === null) {
+    return jsonResponse({ error: "Informe endereços válidos nos campos Para e Cc." }, 400);
   }
 
   const credentials = zohoMailCredentials();
@@ -688,7 +834,7 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
     return jsonResponse({ error: "Não foi possível validar o título financeiro." }, 500);
   }
   if (!movement) return jsonResponse({ error: "Título não encontrado." }, 404);
-  const row = movement as MovementRow & { counterparty_document: string | null };
+  const row = movement as MovementRow;
   if (row.type !== "RECEITA")
     return jsonResponse({ error: "Só títulos de Contas a Receber podem ser enviados." }, 400);
   if (row.sync_state !== "current") {
@@ -739,31 +885,20 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
   const mail = buildMail(row, reminderDays, daysOverdue, periodKey);
 
   const matchKey = normalizeName(row.counterparty);
-  const { data: contact, error: contactError } = await supabaseAdmin
-    .from("receivable_contacts")
-    .select("email,cc")
-    .eq("match_key", matchKey)
-    .maybeSingle();
-  if (contactError) {
-    console.error("[billing] falha ao consultar o destinatário", contactError);
-    return jsonResponse({ error: "Não foi possível consultar os contatos de cobrança." }, 500);
-  }
-  if (!contact) {
+  const { error: saveContactError } = await supabaseAdmin.from("receivable_contacts").upsert(
+    {
+      match_key: matchKey,
+      counterparty_name: row.counterparty,
+      email: recipients.join("; "),
+      cc: cc.join("; "),
+    },
+    { onConflict: "match_key" },
+  );
+  if (saveContactError) {
+    console.error("[billing] falha ao salvar o destinatário confirmado", saveContactError);
     return jsonResponse(
-      {
-        error: "Não há e-mail cadastrado para este cliente. Importe os contatos em Configurações.",
-      },
-      409,
-    );
-  }
-
-  const contactRow = contact as ContactRow;
-  const recipients = validEmailList(contactRow.email);
-  const cc = contactRow.cc ? validEmailList(contactRow.cc) : [];
-  if (!recipients || cc === null) {
-    return jsonResponse(
-      { error: "O destinatário cadastrado não é válido; revise os contatos." },
-      409,
+      { error: "Não foi possível salvar o contato confirmado; nenhum e-mail foi enviado." },
+      500,
     );
   }
 
@@ -1135,6 +1270,7 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
     const action = new URL(request.url).searchParams.get("action");
     if (action === "zoho_connect") return startZohoAuthorization(request);
     if (action === "events") return getBillingEvents(request);
+    if (action === "recipient") return getBillingRecipient(request);
     if (action === "movements" || action === "partial_balances") {
       if (!authenticatedUsername(request)) {
         return jsonResponse({ error: "Entre na área de cobrança antes de continuar." }, 401);

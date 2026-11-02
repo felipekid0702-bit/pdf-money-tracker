@@ -1,5 +1,14 @@
 import { useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AppLayout } from "@/components/AppLayout";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState } from "@/components/StatCard";
@@ -185,13 +194,10 @@ export function MovementsPage({ type }: { type: MovementType }) {
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
               <span>
                 {reviewRows.length} título(s) somando{" "}
-                {formatBRL(reviewRows.reduce((acc, m) => acc + openOf(m), 0))} não constam no
-                último relatório do Bling e ficam fora dos totais e da cobrança.
+                {formatBRL(reviewRows.reduce((acc, m) => acc + openOf(m), 0))} não constam no último
+                relatório do Bling e ficam fora dos totais e da cobrança.
               </span>
-              <button
-                className="underline"
-                onClick={() => setShowReview((v) => !v)}
-              >
+              <button className="underline" onClick={() => setShowReview((v) => !v)}>
                 {showReview ? "Ocultar títulos em revisão" : "Mostrar títulos em revisão"}
               </button>
             </div>
@@ -414,6 +420,8 @@ function Row({
           ) : (
             <BillingSendButton
               movementId={m.id}
+              customer={m.counterparty ?? ""}
+              document={m.document ?? ""}
               label={billingAction}
               authenticated={authenticated}
             />
@@ -437,33 +445,76 @@ function billingActionFor(dueDate: string | null, today: string): string | null 
 
 function BillingSendButton({
   movementId,
+  customer,
+  document,
   label,
   authenticated,
 }: {
   movementId: string;
+  customer: string;
+  document: string;
   label: string;
   authenticated: boolean;
 }) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [loadingRecipient, setLoadingRecipient] = useState(false);
   const [message, setMessage] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [ccEmail, setCcEmail] = useState("");
+  const [previousRecipients, setPreviousRecipients] = useState<string[]>([]);
+  const [dialogError, setDialogError] = useState("");
 
-  async function send() {
-    setBusy(true);
+  async function openConfirmation() {
+    setDialogOpen(true);
+    setLoadingRecipient(true);
     setMessage("");
+    setDialogError("");
+    setRecipientEmail("");
+    setCcEmail("");
+    setPreviousRecipients([]);
+    try {
+      const params = new URLSearchParams({ action: "recipient", movementId });
+      const response = await fetch(`/api/billing?${params.toString()}`);
+      const result = (await response.json()) as {
+        error?: string;
+        recipientEmail?: string;
+        ccEmail?: string;
+        previousRecipients?: string[];
+      };
+      if (!response.ok)
+        throw new Error(result.error ?? "Não foi possível buscar os destinatários.");
+      setRecipientEmail(result.recipientEmail ?? "");
+      setCcEmail(result.ccEmail ?? "");
+      setPreviousRecipients(result.previousRecipients ?? []);
+    } catch (error) {
+      setDialogError(
+        error instanceof Error ? error.message : "Não foi possível buscar os destinatários.",
+      );
+    } finally {
+      setLoadingRecipient(false);
+    }
+  }
+
+  async function send(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setDialogError("");
     try {
       const response = await fetch("/api/billing", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "send", movementId }),
+        body: JSON.stringify({ action: "send", movementId, recipientEmail, ccEmail }),
       });
       const result = (await response.json()) as { error?: string; sent?: boolean };
       if (!response.ok) throw new Error(result.error ?? "Não foi possível enviar o e-mail.");
       if (!result.sent) throw new Error("O servidor não confirmou o envio.");
-      setMessage("E-mail enviado.");
+      setMessage(`E-mail enviado para ${recipientEmail}.`);
+      setDialogOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["receivable-email-events"] });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Não foi possível enviar o e-mail.");
+      setDialogError(error instanceof Error ? error.message : "Não foi possível enviar o e-mail.");
     } finally {
       setBusy(false);
     }
@@ -473,23 +524,117 @@ function BillingSendButton({
     <div className="space-y-1">
       <button
         type="button"
-        disabled={!authenticated || busy}
-        onClick={send}
+        disabled={!authenticated || busy || loadingRecipient}
+        onClick={() => void openConfirmation()}
         title={
-          authenticated ? "Envia imediatamente pelo Zoho Mail" : "Entre pelo controle no cabeçalho"
+          authenticated
+            ? "Confirma os destinatários antes de enviar pelo Zoho Mail"
+            : "Entre pelo controle no cabeçalho"
         }
         className="rounded-md border border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {busy ? "Enviando…" : authenticated ? label : "Entre para enviar"}
+        {authenticated ? label : "Entre para enviar"}
       </button>
       {message && (
-        <p
-          role={message === "E-mail enviado." ? "status" : "alert"}
-          className="max-w-56 text-xs text-muted-foreground"
-        >
+        <p role="status" className="max-w-56 text-xs text-muted-foreground">
           {message}
         </p>
       )}
+      <Dialog open={dialogOpen} onOpenChange={(open) => !busy && setDialogOpen(open)}>
+        <DialogContent>
+          <form onSubmit={send} className="space-y-5">
+            <DialogHeader>
+              <DialogTitle>Confirmar envio da cobrança</DialogTitle>
+              <DialogDescription>
+                Confira ou altere os destinatários. O e-mail será enviado imediatamente para{" "}
+                {customer} — título {document}.
+              </DialogDescription>
+            </DialogHeader>
+            {loadingRecipient && (
+              <p role="status" className="text-sm text-muted-foreground">
+                Buscando contato salvo e endereços usados anteriormente…
+              </p>
+            )}
+            <label className="block space-y-1.5 text-sm">
+              <span className="font-medium">Para</span>
+              <input
+                type="text"
+                required
+                list={`billing-recipients-${movementId}`}
+                value={recipientEmail}
+                onChange={(event) => setRecipientEmail(event.target.value)}
+                placeholder="cliente@empresa.com.br"
+                disabled={busy || loadingRecipient}
+                className="w-full rounded-md border border-input bg-background px-3 py-2"
+              />
+              <datalist id={`billing-recipients-${movementId}`}>
+                {previousRecipients.map((email) => (
+                  <option key={email} value={email} />
+                ))}
+              </datalist>
+              <span className="block text-xs text-muted-foreground">
+                Separe vários endereços por ponto e vírgula.
+              </span>
+            </label>
+            <label className="block space-y-1.5 text-sm">
+              <span className="font-medium">Cc</span>
+              <input
+                type="text"
+                value={ccEmail}
+                onChange={(event) => setCcEmail(event.target.value)}
+                placeholder="copia@empresa.com.br"
+                disabled={busy || loadingRecipient}
+                className="w-full rounded-md border border-input bg-background px-3 py-2"
+              />
+              <span className="block text-xs text-muted-foreground">
+                Opcional. Separe vários endereços por ponto e vírgula.
+              </span>
+            </label>
+            {previousRecipients.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Endereços usados anteriormente
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {previousRecipients.map((email) => (
+                    <button
+                      key={email}
+                      type="button"
+                      disabled={busy || loadingRecipient}
+                      onClick={() => setRecipientEmail(email)}
+                      className="rounded-md border border-input px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
+                    >
+                      {email}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {dialogError && (
+              <p role="alert" className="text-sm text-destructive">
+                {dialogError}
+              </p>
+            )}
+            <DialogFooter>
+              <button
+                type="button"
+                disabled={busy || loadingRecipient}
+                onClick={() => setDialogOpen(false)}
+                className="rounded-md border border-input px-3 py-2 text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={busy || loadingRecipient || !recipientEmail.trim()}
+                className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy ? "Enviando…" : "Confirmar e enviar"}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
