@@ -5,6 +5,7 @@ const SESSION_COOKIE = "fp-finance-session";
 const SESSION_SECONDS = 8 * 60 * 60;
 const MAX_CONTACTS_BYTES = 1_000_000;
 const MAX_REQUEST_BYTES = 5_000_000;
+const BILLING_EVENTS_PAGE_SIZE = 1_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ZOHO_OAUTH_STATE_COOKIE = "fp-zoho-oauth-state";
 const ZOHO_REFRESH_TOKEN_COOKIE = "fp-zoho-refresh-token";
@@ -846,10 +847,70 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
   );
 }
 
+function validISODate(value: string | null): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+async function getBillingEvents(request: Request): Promise<Response> {
+  if (!authenticatedUsername(request)) {
+    return jsonResponse({ error: "Entre na área de cobrança para consultar o histórico." }, 401);
+  }
+  if (!hasAdminDatabaseConfig()) {
+    return jsonResponse(
+      { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
+      503,
+    );
+  }
+
+  const params = new URL(request.url).searchParams;
+  const from = params.get("from");
+  const to = params.get("to");
+  if ((from && !validISODate(from)) || (to && !validISODate(to))) {
+    return jsonResponse({ error: "O período informado para o histórico é inválido." }, 400);
+  }
+  if (from && to && from > to) {
+    return jsonResponse(
+      { error: "A data inicial do histórico não pode ser posterior à final." },
+      400,
+    );
+  }
+
+  const fromTimestamp = from ? new Date(`${from}T00:00:00-03:00`).toISOString() : null;
+  let toTimestamp: string | null = null;
+  if (to) {
+    const end = new Date(`${to}T00:00:00-03:00`);
+    end.setUTCDate(end.getUTCDate() + 1);
+    toTimestamp = end.toISOString();
+  }
+
+  const events = [];
+  for (let offset = 0; ; offset += BILLING_EVENTS_PAGE_SIZE) {
+    let query = supabaseAdmin
+      .from("receivable_email_events")
+      .select("*")
+      .order("sent_at", { ascending: false })
+      .range(offset, offset + BILLING_EVENTS_PAGE_SIZE - 1);
+    if (fromTimestamp) query = query.gte("sent_at", fromTimestamp);
+    if (toTimestamp) query = query.lt("sent_at", toTimestamp);
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("[billing] falha ao consultar o histórico de cobranças", error);
+      return jsonResponse({ error: "Não foi possível carregar o histórico de cobranças." }, 500);
+    }
+    events.push(...(data ?? []));
+    if ((data ?? []).length < BILLING_EVENTS_PAGE_SIZE) break;
+  }
+  return jsonResponse({ events });
+}
+
 export async function handleBillingRequest(request: Request): Promise<Response> {
   if (request.method === "GET") {
     const action = new URL(request.url).searchParams.get("action");
     if (action === "zoho_connect") return startZohoAuthorization(request);
+    if (action === "events") return getBillingEvents(request);
     return jsonResponse({
       authenticated: !!authenticatedUsername(request),
       zohoConnected: !!readCookie(request, ZOHO_REFRESH_TOKEN_COOKIE),

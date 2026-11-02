@@ -4,6 +4,7 @@ import { PeriodFilter } from "@/components/PeriodFilter";
 import { useMovements } from "@/hooks/useMovements";
 import { useReceivableEmailEvents } from "@/hooks/useReceivableEmailEvents";
 import { formatBRL, formatDate, type Movement, type ReceivableEmailEvent } from "@/lib/finance";
+import { useBillingSession } from "@/lib/billing-session";
 import { usePeriod } from "@/lib/period";
 
 type ActionFilter = "" | ReceivableEmailEvent["action_type"];
@@ -28,11 +29,12 @@ interface EventTitleRow {
 
 export function ReceivableActionsPage() {
   const { label, range } = usePeriod();
+  const { authenticated } = useBillingSession();
   const {
     data: events = [],
     isLoading: eventsLoading,
     error,
-  } = useReceivableEmailEvents(range, true);
+  } = useReceivableEmailEvents(range, authenticated);
   const {
     data: movements = [],
     isLoading: movementsLoading,
@@ -151,7 +153,12 @@ export function ReceivableActionsPage() {
             {rows.length} {rows.length === 1 ? "título" : "títulos"}
           </span>
         </div>
-        {eventsLoading || movementsLoading ? (
+        {!authenticated ? (
+          <p className="px-4 py-5 text-sm text-muted-foreground">
+            Entre pelo controle “Acesso de cobrança” no cabeçalho para consultar o histórico de
+            cobranças e boletos enviados.
+          </p>
+        ) : eventsLoading || movementsLoading ? (
           <p className="px-4 py-5 text-sm text-muted-foreground">Carregando registros de envio…</p>
         ) : error ? (
           <p role="alert" className="px-4 py-5 text-sm text-destructive">
