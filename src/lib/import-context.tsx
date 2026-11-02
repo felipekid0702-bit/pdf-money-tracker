@@ -109,6 +109,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
             },
           });
           await qc.invalidateQueries({ queryKey: ["movements"] });
+          await qc.invalidateQueries({ queryKey: ["partial-balances"] });
         } catch (e) {
           const msg =
             e instanceof Error
@@ -124,6 +125,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
       runningRef.current = false;
       setRunning(false);
       await qc.invalidateQueries({ queryKey: ["movements"] });
+      await qc.invalidateQueries({ queryKey: ["partial-balances"] });
     }
   }, [patch, qc]);
 

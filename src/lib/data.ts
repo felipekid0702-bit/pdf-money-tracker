@@ -141,6 +141,7 @@ interface ExistingRow {
   id: string;
   unique_key: string;
   paid_amount: number | string;
+  manual_paid_amount: number | string | null;
   open_amount: number | string;
   paid_amount_known: boolean;
   open_amount_known: boolean;
@@ -371,6 +372,7 @@ export async function importRecords(
       payment_date: previous.payment_date,
       original_amount: Number(previous.original_amount),
       paid_amount: Number(previous.paid_amount),
+      manual_paid_amount: previous.manual_paid_amount,
       open_amount: Number(previous.open_amount),
       paid_amount_known: previous.paid_amount_known,
       open_amount_known: previous.open_amount_known,
@@ -488,4 +490,107 @@ export async function clearAllData(): Promise<void> {
   });
   const result = (await response.json()) as { error?: string };
   if (!response.ok) throw new Error(result.error ?? "Falha ao apagar os dados.");
+}
+
+export interface PartialBalanceAdjustment {
+  movementId: string;
+  openAmount: number;
+}
+
+export interface PartialBalanceMovement {
+  id: string;
+  document: string | null;
+  counterparty: string | null;
+  due_date: string | null;
+  original_amount: number;
+  status: string;
+}
+
+export async function fetchPendingPartialBalances(): Promise<PartialBalanceMovement[]> {
+  const { data, error } = await supabase
+    .from("financial_movements")
+    .select("id,document,counterparty,due_date,original_amount,status")
+    .in("status", ["PARCIALMENTE_RECEBIDO", "PARCIALMENTE_PAGO"])
+    .eq("open_amount_known", false)
+    .eq("sync_state", "current")
+    .order("due_date", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    ...row,
+    original_amount: Number(row.original_amount),
+  }));
+}
+
+export async function savePartialBalanceAdjustments(
+  adjustments: PartialBalanceAdjustment[],
+): Promise<void> {
+  if (!adjustments.length) return;
+
+  const ids = adjustments.map((adjustment) => adjustment.movementId);
+  if (new Set(ids).size !== ids.length) {
+    throw new Error("A lista de títulos parciais contém registros repetidos.");
+  }
+
+  const { data, error } = await supabase
+    .from("financial_movements")
+    .select("id,original_amount,status,open_amount_known")
+    .in("id", ids);
+  if (error) throw error;
+
+  const rows = new Map((data ?? []).map((row) => [row.id, row]));
+  if (rows.size !== adjustments.length) {
+    throw new Error("Algum título mudou durante o ajuste. Atualize a tela e tente novamente.");
+  }
+
+  const validated = adjustments.map((adjustment) => {
+    const row = rows.get(adjustment.movementId);
+    if (
+      !row ||
+      !["PARCIALMENTE_RECEBIDO", "PARCIALMENTE_PAGO"].includes(row.status) ||
+      row.open_amount_known
+    ) {
+      throw new Error("Algum título não está mais pendente de ajuste. Atualize a tela.");
+    }
+
+    const originalCents = Math.round(Number(row.original_amount) * 100);
+    const openCents = Math.round(adjustment.openAmount * 100);
+    if (
+      !Number.isFinite(originalCents) ||
+      !Number.isFinite(openCents) ||
+      openCents <= 0 ||
+      openCents >= originalCents
+    ) {
+      throw new Error(
+        "O saldo em aberto deve ser maior que zero e menor que o valor original do título.",
+      );
+    }
+
+    return {
+      id: row.id,
+      status: row.status,
+      openAmount: openCents / 100,
+      paidAmount: (originalCents - openCents) / 100,
+    };
+  });
+
+  for (const adjustment of validated) {
+    const { data: updated, error: updateError } = await supabase
+      .from("financial_movements")
+      .update({
+        manual_paid_amount: adjustment.paidAmount,
+        paid_amount: adjustment.paidAmount,
+        open_amount: adjustment.openAmount,
+        paid_amount_known: true,
+        open_amount_known: true,
+      })
+      .eq("id", adjustment.id)
+      .eq("status", adjustment.status)
+      .eq("open_amount_known", false)
+      .select("id")
+      .maybeSingle();
+    if (updateError) throw updateError;
+    if (!updated) {
+      throw new Error("Algum título mudou durante o ajuste. Atualize a tela e tente novamente.");
+    }
+  }
 }

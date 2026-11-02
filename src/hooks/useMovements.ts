@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { fetchAllMovements } from "@/lib/data";
+import { fetchAllMovements, fetchPendingPartialBalances } from "@/lib/data";
+import type { PartialBalanceMovement } from "@/lib/data";
 import type { Movement } from "@/lib/finance";
 
 /** Todos os títulos gravados, inclusive os em revisão (não constam mais no Bling). */
@@ -12,6 +13,14 @@ export function useAllMovements() {
   });
 }
 
+export function usePendingPartialBalances() {
+  return useQuery<PartialBalanceMovement[]>({
+    queryKey: ["partial-balances"],
+    queryFn: fetchPendingPartialBalances,
+    staleTime: 30_000,
+  });
+}
+
 /**
  * Títulos que refletem o último relatório do Bling.
  * Títulos em revisão (ausentes do último PDF importado) ficam de fora de
@@ -19,9 +28,6 @@ export function useAllMovements() {
  */
 export function useMovements() {
   const query = useAllMovements();
-  const data = useMemo(
-    () => query.data?.filter((m) => m.sync_state !== "review"),
-    [query.data],
-  );
+  const data = useMemo(() => query.data?.filter((m) => m.sync_state !== "review"), [query.data]);
   return { ...query, data };
 }

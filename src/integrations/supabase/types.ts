@@ -18,6 +18,7 @@ export type Database = {
           due_date: string | null;
           id: string;
           issue_date: string | null;
+          manual_paid_amount: number | null;
           open_amount: number;
           open_amount_known: boolean;
           original_amount: number;
@@ -41,6 +42,7 @@ export type Database = {
           due_date?: string | null;
           id?: string;
           issue_date?: string | null;
+          manual_paid_amount?: number | null;
           open_amount?: number;
           open_amount_known?: boolean;
           original_amount?: number;
@@ -64,6 +66,7 @@ export type Database = {
           due_date?: string | null;
           id?: string;
           issue_date?: string | null;
+          manual_paid_amount?: number | null;
           open_amount?: number;
           open_amount_known?: boolean;
           original_amount?: number;
