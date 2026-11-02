@@ -27,33 +27,12 @@ interface ImportContactsBody {
   contents: string;
 }
 
-interface FiscalDocumentInput {
-  direction: "ENTRADA" | "SAIDA";
-  document_number: string;
-  invoice_type: string | null;
-  issue_date: string;
-  counterparty: string;
-  status: string;
-  amount: number;
-}
-
-interface ImportFiscalBody {
-  action: "import_fiscal";
-  sourceFile: string;
-  records: FiscalDocumentInput[];
-}
-
 interface ClearFinancialDataBody {
   action: "clear_financial_data";
 }
 
 type PostBody =
-  | LoginBody
-  | SendBody
-  | ImportContactsBody
-  | ImportFiscalBody
-  | ClearFinancialDataBody
-  | { action: "logout" };
+  LoginBody | SendBody | ImportContactsBody | ClearFinancialDataBody | { action: "logout" };
 
 interface MovementRow {
   id: string;
@@ -364,137 +343,6 @@ async function importContacts(source: unknown): Promise<Response> {
   return jsonResponse({ imported: contacts.length, rejected: rejectedKeys.length });
 }
 
-async function importFiscalDocuments(body: ImportFiscalBody): Promise<Response> {
-  if (!hasAdminDatabaseConfig()) {
-    return jsonResponse(
-      { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
-      503,
-    );
-  }
-  if (
-    typeof body.sourceFile !== "string" ||
-    !body.sourceFile.trim() ||
-    body.sourceFile.length > 255 ||
-    !Array.isArray(body.records) ||
-    body.records.length === 0 ||
-    body.records.length > 10_000
-  ) {
-    return jsonResponse(
-      { error: "O relatório fiscal está vazio ou excede o limite permitido." },
-      400,
-    );
-  }
-
-  const rows = new Map<string, FiscalDocumentInput & { source_file: string; unique_key: string }>();
-  for (const rawRecord of body.records) {
-    if (!rawRecord || typeof rawRecord !== "object") {
-      return jsonResponse({ error: "O relatório contém um registro inválido." }, 400);
-    }
-    const record = rawRecord as FiscalDocumentInput;
-    const parsedDate =
-      typeof record.issue_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(record.issue_date)
-        ? Date.parse(`${record.issue_date}T00:00:00Z`)
-        : Number.NaN;
-    const issueDate =
-      Number.isFinite(parsedDate) &&
-      new Date(parsedDate).toISOString().slice(0, 10) === record.issue_date
-        ? record.issue_date
-        : null;
-    if (
-      !["ENTRADA", "SAIDA"].includes(record.direction) ||
-      typeof record.document_number !== "string" ||
-      !record.document_number.trim() ||
-      record.document_number.length > 100 ||
-      !issueDate ||
-      typeof record.counterparty !== "string" ||
-      !record.counterparty.trim() ||
-      record.counterparty.length > 500 ||
-      typeof record.status !== "string" ||
-      !record.status.trim() ||
-      record.status.length > 120 ||
-      (record.invoice_type !== null &&
-        (typeof record.invoice_type !== "string" || record.invoice_type.length > 40)) ||
-      typeof record.amount !== "number" ||
-      !Number.isFinite(record.amount) ||
-      Math.abs(record.amount) >= 1_000_000_000_000
-    ) {
-      return jsonResponse({ error: "O relatório contém campos inválidos ou incompletos." }, 400);
-    }
-
-    const documentNumber = record.document_number.trim();
-    const counterparty = record.counterparty.trim();
-    const uniqueKey = createHash("sha256")
-      .update(
-        [
-          record.direction,
-          documentNumber.toLocaleUpperCase("pt-BR"),
-          issueDate,
-          normalizeName(counterparty),
-        ].join("|"),
-      )
-      .digest("hex");
-    const row = {
-      ...record,
-      document_number: documentNumber,
-      issue_date: issueDate,
-      counterparty,
-      status: record.status.trim(),
-      invoice_type: record.invoice_type?.trim() || null,
-      amount: Number(record.amount.toFixed(2)),
-      source_file: body.sourceFile.trim(),
-      unique_key: uniqueKey,
-    };
-    const previous = rows.get(uniqueKey);
-    if (
-      previous &&
-      (previous.amount !== row.amount ||
-        previous.status !== row.status ||
-        previous.invoice_type !== row.invoice_type)
-    ) {
-      return jsonResponse(
-        {
-          error:
-            "O PDF contém a mesma nota mais de uma vez com dados diferentes. Revise o relatório antes de importar.",
-        },
-        400,
-      );
-    }
-    rows.set(uniqueKey, row);
-  }
-
-  const imports = [...rows.values()];
-  const existingKeys = new Set<string>();
-  for (let offset = 0; offset < imports.length; offset += 200) {
-    const batch = imports.slice(offset, offset + 200);
-    const { data, error } = await supabaseAdmin
-      .from("fiscal_documents")
-      .select("unique_key")
-      .in(
-        "unique_key",
-        batch.map((row) => row.unique_key),
-      );
-    if (error) {
-      console.error("[billing] falha ao consultar notas fiscais existentes", error);
-      return jsonResponse({ error: "Não foi possível validar notas fiscais já importadas." }, 500);
-    }
-    for (const row of data ?? []) existingKeys.add(row.unique_key);
-  }
-
-  const { error: upsertError } = await supabaseAdmin
-    .from("fiscal_documents")
-    .upsert(imports, { onConflict: "unique_key" });
-  if (upsertError) {
-    console.error("[billing] falha ao salvar notas fiscais", upsertError);
-    return jsonResponse({ error: "Não foi possível salvar as notas fiscais importadas." }, 500);
-  }
-
-  return jsonResponse({
-    created: imports.filter((row) => !existingKeys.has(row.unique_key)).length,
-    existing: existingKeys.size,
-    total: imports.length,
-  });
-}
-
 async function sendBillingEmail(body: SendBody): Promise<Response> {
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -773,30 +621,6 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
 
 export async function handleBillingRequest(request: Request): Promise<Response> {
   if (request.method === "GET") {
-    const resource = new URL(request.url).searchParams.get("resource");
-    if (resource === "fiscal") {
-      if (!authenticatedUsername(request)) {
-        return jsonResponse({ error: "Entre na área de cobrança antes de continuar." }, 401);
-      }
-      if (!hasAdminDatabaseConfig()) {
-        return jsonResponse(
-          { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
-          503,
-        );
-      }
-      const { data, error } = await supabaseAdmin
-        .from("fiscal_documents")
-        .select(
-          "id,direction,document_number,invoice_type,issue_date,counterparty,status,amount,source_file,imported_at",
-        )
-        .order("imported_at", { ascending: false })
-        .limit(100);
-      if (error) {
-        console.error("[billing] falha ao carregar notas fiscais", error);
-        return jsonResponse({ error: "Não foi possível carregar as notas fiscais." }, 500);
-      }
-      return jsonResponse({ documents: data ?? [] });
-    }
     return jsonResponse({ authenticated: !!authenticatedUsername(request) });
   }
 
@@ -920,7 +744,6 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
     return importContacts(source);
   }
 
-  if (body.action === "import_fiscal") return importFiscalDocuments(body);
   if (body.action === "send") return sendBillingEmail(body);
   if (body.action === "clear_financial_data") {
     if (!hasAdminDatabaseConfig()) {
@@ -935,10 +758,7 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
       if (error.code === "P0001") {
         return jsonResponse({ error: error.message }, 409);
       }
-      return jsonResponse(
-        { error: "Não foi possível apagar os dados financeiros e fiscais." },
-        500,
-      );
+      return jsonResponse({ error: "Não foi possível apagar os dados financeiros." }, 500);
     }
     return jsonResponse({ cleared: true });
   }

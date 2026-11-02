@@ -281,48 +281,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      fiscal_documents: {
-        Row: {
-          id: string;
-          direction: "ENTRADA" | "SAIDA";
-          document_number: string;
-          invoice_type: string | null;
-          issue_date: string;
-          counterparty: string;
-          status: string;
-          amount: number;
-          source_file: string;
-          unique_key: string;
-          imported_at: string;
-        };
-        Insert: {
-          id?: string;
-          direction: "ENTRADA" | "SAIDA";
-          document_number: string;
-          invoice_type?: string | null;
-          issue_date: string;
-          counterparty: string;
-          status: string;
-          amount: number;
-          source_file: string;
-          unique_key: string;
-          imported_at?: string;
-        };
-        Update: {
-          id?: string;
-          direction?: "ENTRADA" | "SAIDA";
-          document_number?: string;
-          invoice_type?: string | null;
-          issue_date?: string;
-          counterparty?: string;
-          status?: string;
-          amount?: number;
-          source_file?: string;
-          unique_key?: string;
-          imported_at?: string;
-        };
-        Relationships: [];
-      };
     };
     Views: {
       [_ in never]: never;

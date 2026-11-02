@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { Movement } from "./finance";
+import { todayISO, type Movement } from "./finance";
 import type { ParsedRecord } from "./pdf-parser";
 
 export async function fetchAllMovements(): Promise<Movement[]> {
@@ -36,16 +36,15 @@ export interface ImportSummary {
   existing: number;
   updated: number;
   reviewRequired: number;
-  reviewApplied: boolean;
+  reviewScope: "all" | "overdue" | "none";
+  amountKind: ParsedRecord["amount_kind"];
+  sourceAmountTotal: number;
+  unmatchedBalanceCount: number;
   total: number;
   paid: number;
   open: number;
   pdfTotal: number | null;
   divergence: number | null;
-}
-
-function normKey(v: string | null): string {
-  return (v ?? "").toUpperCase().replace(/\s+/g, " ").trim();
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -54,6 +53,66 @@ function chunk<T>(items: T[], size: number): T[][] {
     batches.push(items.slice(index, index + size));
   }
   return batches;
+}
+
+function normalizeIdentityPart(value: string | null): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function movementIdentityKey(movement: {
+  type: string;
+  document: string | null;
+  counterparty: string | null;
+  description: string | null;
+  due_date: string | null;
+}): string | null {
+  if (!movement.due_date) return null;
+  const document = normalizeIdentityPart(movement.document);
+  const counterparty = normalizeIdentityPart(movement.counterparty);
+  if (document && counterparty) {
+    return JSON.stringify([movement.type, document, counterparty, movement.due_date]);
+  }
+
+  const description = normalizeIdentityPart(movement.description);
+  if (!document && counterparty && description) {
+    return JSON.stringify([movement.type, counterparty, description, movement.due_date]);
+  }
+  return null;
+}
+
+function movementDocumentDueKey(movement: {
+  type: string;
+  document: string | null;
+  due_date: string | null;
+}): string | null {
+  const document = normalizeIdentityPart(movement.document);
+  if (!document || !movement.due_date) return null;
+  return JSON.stringify([movement.type, document, movement.due_date]);
+}
+
+function toDatabaseRecord(record: ParsedRecord): Record<string, unknown> {
+  return {
+    type: record.type,
+    document: record.document,
+    counterparty: record.counterparty,
+    counterparty_document: record.counterparty_document,
+    description: record.description,
+    issue_date: record.issue_date,
+    due_date: record.due_date,
+    payment_date: record.payment_date,
+    original_amount: record.original_amount,
+    paid_amount: record.paid_amount,
+    open_amount: record.open_amount,
+    status: record.status,
+    source: record.source,
+    source_file: record.source_file,
+    unique_key: record.unique_key,
+  };
 }
 
 async function mapLimit<T, R>(
@@ -107,22 +166,46 @@ export async function importRecords(
     throw new Error("A importação precisa conter registros de um único tipo.");
   }
   if (!records.length) throw new Error("Nenhum registro financeiro válido foi identificado.");
+  const amountKind = records[0]!.amount_kind;
+  if (records.some((record) => record.amount_kind !== amountKind)) {
+    throw new Error("O PDF mistura valores originais e saldos em aberto.");
+  }
 
   const cents = (amount: number) => Math.round(amount * 100);
-  const totalCents = records.reduce((sum, record) => sum + cents(record.original_amount), 0);
-  const total = totalCents / 100;
+  const sourceAmountTotal =
+    records.reduce(
+      (sum, record) =>
+        sum + cents(amountKind === "balance" ? record.open_amount : record.original_amount),
+      0,
+    ) / 100;
   const wanted = new Set(records.map((record) => record.unique_key));
   if (wanted.size !== records.length) {
     throw new Error("O PDF contém chaves de títulos repetidas.");
   }
+  const identityKeys = records
+    .map(movementIdentityKey)
+    .filter((key): key is string => key !== null);
+  if (new Set(identityKeys).size !== identityKeys.length) {
+    throw new Error("O PDF contém mais de um registro para o mesmo título e vencimento.");
+  }
 
-  const reviewApplied =
+  const totalsReconciled =
     rejected === 0 &&
     found === records.length &&
     pdfTotal !== null &&
     Number.isFinite(pdfTotal) &&
-    cents(pdfTotal) === totalCents;
+    cents(pdfTotal) === cents(sourceAmountTotal);
+  const overdueOnly = records.every(
+    (record) =>
+      !!record.due_date &&
+      record.due_date < todayISO() &&
+      (record.status === "ATRASADO" ||
+        record.status === "PARCIALMENTE_RECEBIDO" ||
+        record.status === "PARCIALMENTE_PAGO"),
+  );
   const existing = new Map<string, ExistingRow>();
+  const existingByIdentity = new Map<string, ExistingRow[]>();
+  const existingByDocumentDue = new Map<string, ExistingRow[]>();
   const allExisting: ExistingRow[] = [];
   const pageSize = 1000;
 
@@ -138,64 +221,98 @@ export async function importRecords(
     for (const row of rows) {
       existing.set(row.unique_key, row);
       allExisting.push(row);
+      const identity = movementIdentityKey(row);
+      if (identity) {
+        existingByIdentity.set(identity, [...(existingByIdentity.get(identity) ?? []), row]);
+      }
+      const documentDue = movementDocumentDueKey(row);
+      if (documentDue) {
+        existingByDocumentDue.set(documentDue, [
+          ...(existingByDocumentDue.get(documentDue) ?? []),
+          row,
+        ]);
+      }
     }
     onProgress?.(Math.round(records.length * 0.15), records.length);
     if (rows.length < pageSize) break;
   }
 
-  // O PDF do Bling traz só o saldo. Em pagamento parcial o saldo muda o valor
-  // que compõe a unique_key; por isso o título é reconhecido também por
-  // documento + cliente + vencimento, e o valor original gravado é preservado.
-  const looseKey = (r: {
-    document: string | null;
-    counterparty: string | null;
-    due_date: string | null;
-  }) => [normKey(r.document), normKey(r.counterparty), r.due_date ?? ""].join("|");
-  const looseIndex = new Map<string, ExistingRow[]>();
-  for (const row of allExisting) {
-    const k = looseKey(row);
-    looseIndex.set(k, [...(looseIndex.get(k) ?? []), row]);
-  }
-  const claimed = new Set<string>(
-    records.map((r) => existing.get(r.unique_key)?.id).filter((id): id is string => !!id),
-  );
-
   const toInsert: ParsedRecord[] = [];
   const toUpdate: Array<Record<string, unknown>> = [];
-  for (const incoming of records) {
-    let record = incoming;
+  const effectiveRecords: ParsedRecord[] = [];
+  const matchedExistingIds = new Set<string>();
+  for (const record of records) {
     let previous = existing.get(record.unique_key);
-    if (!previous && (record.status === "PARCIALMENTE_RECEBIDO" || record.status === "PARCIALMENTE_PAGO")) {
-      const candidates = (looseIndex.get(looseKey(record)) ?? []).filter(
-        (row) => !claimed.has(row.id) && Number(row.original_amount) > record.open_amount,
+
+    if (!previous) {
+      const identity = movementIdentityKey(record);
+      const candidates = (identity ? existingByIdentity.get(identity) : undefined)?.filter(
+        (row) => !matchedExistingIds.has(row.id),
       );
-      if (candidates.length === 1) {
-        previous = candidates[0]!;
-        claimed.add(previous.id);
-        const original = Number(previous.original_amount);
-        record = {
-          ...record,
-          original_amount: original,
-          paid_amount: Number((original - record.open_amount).toFixed(2)),
-        };
+      if (candidates && candidates.length > 1) {
+        throw new Error(
+          "Há títulos duplicados com o mesmo documento, cliente e vencimento. Revise os dados antes de importar.",
+        );
+      }
+      previous = candidates?.[0];
+    }
+    if (!previous) {
+      const documentDue = movementDocumentDueKey(record);
+      const candidates = (documentDue ? existingByDocumentDue.get(documentDue) : undefined)?.filter(
+        (row) => !matchedExistingIds.has(row.id),
+      );
+      if (candidates && candidates.length > 1) {
+        throw new Error(
+          "Há títulos com o mesmo documento e vencimento para contrapartes diferentes. Revise os dados antes de importar.",
+        );
+      }
+      const candidate = candidates?.[0];
+      if (
+        candidate &&
+        amountKind === "original" &&
+        cents(Number(candidate.original_amount)) === cents(record.original_amount)
+      ) {
+        previous = candidate;
       }
     }
     if (!previous) {
       toInsert.push(record);
+      effectiveRecords.push(record);
       continue;
     }
+    matchedExistingIds.add(previous.id);
+
+    const previousOriginal = Number(previous.original_amount);
+    const effectiveOriginal =
+      amountKind === "balance"
+        ? Math.max(previousOriginal, record.open_amount)
+        : record.original_amount;
+    const effectiveRecord: ParsedRecord = {
+      ...record,
+      original_amount: effectiveOriginal,
+      paid_amount:
+        amountKind === "balance"
+          ? Number((effectiveOriginal - record.open_amount).toFixed(2))
+          : record.paid_amount,
+    };
+    effectiveRecords.push(effectiveRecord);
 
     const patch: Record<string, unknown> = {};
-    if (Number(previous.paid_amount) !== record.paid_amount)
-      patch["paid_amount"] = record.paid_amount;
-    if (Number(previous.open_amount) !== record.open_amount)
-      patch["open_amount"] = record.open_amount;
-    if (previous.status !== record.status) patch["status"] = record.status;
+    if (Number(previous.original_amount) !== effectiveRecord.original_amount)
+      patch["original_amount"] = effectiveRecord.original_amount;
+    if (Number(previous.paid_amount) !== effectiveRecord.paid_amount)
+      patch["paid_amount"] = effectiveRecord.paid_amount;
+    if (Number(previous.open_amount) !== effectiveRecord.open_amount)
+      patch["open_amount"] = effectiveRecord.open_amount;
+    if (previous.status !== effectiveRecord.status) patch["status"] = effectiveRecord.status;
+    if (record.amount_kind === "original" && previous.unique_key !== record.unique_key)
+      patch["unique_key"] = record.unique_key;
     if (record.payment_date && previous.payment_date !== record.payment_date)
       patch["payment_date"] = record.payment_date;
     if (record.issue_date && !previous.issue_date) patch["issue_date"] = record.issue_date;
     if (record.description && !previous.description) patch["description"] = record.description;
-    if (record.counterparty && !previous.counterparty) patch["counterparty"] = record.counterparty;
+    if (record.counterparty && previous.counterparty !== record.counterparty)
+      patch["counterparty"] = record.counterparty;
     if (record.counterparty_document && !previous.counterparty_document)
       patch["counterparty_document"] = record.counterparty_document;
     if (previous.sync_state !== "current") patch["sync_state"] = "current";
@@ -223,15 +340,15 @@ export async function importRecords(
     });
   }
 
-  const batches: Array<Array<Record<string, unknown>>> = [
-    ...chunk(
-      toInsert.map((record) => ({ ...record, sync_state: "current" })),
-      400,
-    ),
-    ...chunk(toUpdate, 400),
-  ];
+  const total =
+    effectiveRecords.reduce((sum, record) => sum + cents(record.original_amount), 0) / 100;
+  const insertBatches = chunk(
+    toInsert.map((record) => ({ ...toDatabaseRecord(record), sync_state: "current" })),
+    400,
+  );
+  const updateBatches = chunk(toUpdate, 400);
   let written = 0;
-  await mapLimit(batches, 3, async (batch) => {
+  await mapLimit(insertBatches, 3, async (batch) => {
     const { error } = await supabase
       .from("financial_movements")
       .upsert(batch as never, { onConflict: "unique_key" });
@@ -239,14 +356,33 @@ export async function importRecords(
     written += batch.length;
     onProgress?.(Math.round(records.length * 0.3 + written * 0.7), records.length);
   });
+  await mapLimit(updateBatches, 3, async (batch) => {
+    const { error } = await supabase
+      .from("financial_movements")
+      .upsert(batch as never, { onConflict: "id" });
+    if (error) throw error;
+    written += batch.length;
+    onProgress?.(Math.round(records.length * 0.3 + written * 0.7), records.length);
+  });
 
-  const paid = records.reduce((sum, record) => sum + cents(record.paid_amount), 0) / 100;
-  const open = records.reduce((sum, record) => sum + cents(record.open_amount), 0) / 100;
-  const missingRows = allExisting.filter(
-    (row) => !wanted.has(row.unique_key) && !claimed.has(row.id),
-  );
-  if (reviewApplied && missingRows.length) {
-    await mapLimit(chunk(missingRows, 400), 3, async (batch) => {
+  const paid = effectiveRecords.reduce((sum, record) => sum + cents(record.paid_amount), 0) / 100;
+  const open = effectiveRecords.reduce((sum, record) => sum + cents(record.open_amount), 0) / 100;
+  const reviewScope = totalsReconciled
+    ? amountKind === "balance" || overdueOnly
+      ? "overdue"
+      : "all"
+    : "none";
+  const missingRows = allExisting.filter((row) => !matchedExistingIds.has(row.id));
+  const rowsToReview =
+    reviewScope === "all"
+      ? missingRows
+      : reviewScope === "overdue"
+        ? missingRows.filter(
+            (row) => Number(row.open_amount) > 0 && !!row.due_date && row.due_date < todayISO(),
+          )
+        : [];
+  if (rowsToReview.length) {
+    await mapLimit(chunk(rowsToReview, 400), 3, async (batch) => {
       const { error } = await supabase
         .from("financial_movements")
         .update({ sync_state: "review" })
@@ -257,9 +393,11 @@ export async function importRecords(
       if (error) throw error;
     });
   }
-  const reviewRequired = reviewApplied
-    ? missingRows.length
-    : allExisting.filter((row) => row.sync_state === "review").length;
+  const reviewRequired =
+    reviewScope !== "none"
+      ? rowsToReview.length
+      : allExisting.filter((row) => row.sync_state === "review" && !matchedExistingIds.has(row.id))
+          .length;
 
   const { error: batchError } = await supabase.from("import_batches").insert({
     type: recordType,
@@ -287,12 +425,15 @@ export async function importRecords(
     existing: records.length - toInsert.length,
     updated: toUpdate.length,
     reviewRequired,
-    reviewApplied,
+    reviewScope,
+    amountKind,
+    sourceAmountTotal,
+    unmatchedBalanceCount: amountKind === "balance" ? toInsert.length : 0,
     total,
     paid,
     open,
     pdfTotal,
-    divergence: pdfTotal === null ? null : Number((pdfTotal - total).toFixed(2)),
+    divergence: pdfTotal === null ? null : Number((pdfTotal - sourceAmountTotal).toFixed(2)),
   };
 }
 

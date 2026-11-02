@@ -27,7 +27,7 @@ A aplicação terá como única fonte de dados, nesta primeira versão:
 
 RELATÓRIOS PDF EXPORTADOS DO BLING.
 
-Existem três áreas de dados separadas:
+Existem duas áreas de dados separadas:
 
 CONTAS A RECEBER
 
@@ -36,10 +36,6 @@ Representa receitas, faturamento e valores que a empresa tem a receber.
 CONTAS A PAGAR
 
 Representa despesas e valores que a empresa precisa pagar.
-
-DOCUMENTOS FISCAIS
-
-Registros descritivos de Notas Fiscais de Entrada e Saída. Eles ficam em tabela própria e não alteram saldos ou títulos financeiros.
 
 O objetivo é importar esses PDFs, transformar seus registros em movimentos financeiros estruturados e apresentar dashboards, análises e previsões.
 
@@ -922,18 +918,10 @@ Antes de habilitar o fluxo:
 4. Faça login pelo controle **Acesso de cobrança** no cabeçalho, abra **Configurações** e importe o JSON local de contatos. A lista é armazenada em `receivable_contacts`, sem permissões de leitura para `anon`/`authenticated`; o servidor usa a chave `service_role`.
 5. Valide primeiro em produção apenas com um título e destinatário de teste controlado pela empresa. O Graph envia de verdade assim que as credenciais estiverem configuradas; não há modo rascunho nesse endpoint.
 
-Não reutilize senha publicada em chat ou código. Cadastre uma senha nova e exclusiva diretamente na Vercel. A sessão de cobrança usa cookie `HttpOnly`, expira em 8 horas e o endpoint limita tentativas de login. Os e-mails de cobrança/aviso não incluem anexos; o fluxo de boleto + Nota Fiscal continua separado.
+Não reutilize senha publicada em chat ou código. Cadastre uma senha nova e exclusiva diretamente na Vercel. A sessão de cobrança usa cookie `HttpOnly`, expira em 8 horas e o endpoint limita tentativas de login. Os e-mails de cobrança/aviso não incluem anexos; o fluxo de envio de boletos continua separado.
 
 ## Importação financeira não destrutiva
 
 Uma importação completa continua atualizando os títulos presentes no PDF, mas títulos armazenados que não aparecem no novo arquivo agora ficam marcados como **Revisão necessária** em vez de serem apagados. Eles permanecem nos dados e nos totais até uma conferência manual no Bling, e o endpoint de e-mail bloqueia esses títulos. Assim, ausência em um PDF não é tratada silenciosamente como quitação ou exclusão.
 
-Os quatro PDFs fornecidos para a evolução fiscal são relatórios de **Notas Fiscais de Entrada/Saída**; eles não substituem os relatórios de **Contas a Receber/Pagar** usados para conciliar os saldos citados no artefato. Não use esses PDFs fiscais para baixar títulos financeiros.
-
-## Importação de Notas Fiscais
-
-Em **Importação**, os relatórios fiscais têm campos separados para **Notas Fiscais de Entrada** e **Notas Fiscais de Saída**. O parser valida as colunas, preserva zeros à esquerda nos números e bloqueia a importação se encontrar linhas fiscais não reconhecidas ou se o tipo de relatório não corresponder ao campo escolhido. As notas são deduplicadas por direção, número, data de emissão e contraparte.
-
-Os registros são salvos em `fiscal_documents`, uma tabela privada e separada de `financial_movements`. A importação não cria, baixa nem altera valores de Contas a Receber/Pagar e não executa cálculos tributários. A lista mostra as 100 notas importadas mais recentemente.
-
-O acesso reutiliza **Acesso de cobrança** no cabeçalho. Configure `BILLING_LOGIN_USERNAME`, `BILLING_LOGIN_PASSWORD` (senha nova, exclusiva e com pelo menos 16 caracteres) e `BILLING_SESSION_SECRET` (pelo menos 32 caracteres) como variáveis privadas do projeto Vercel. A tabela fiscal requer a migration `20261026210000_fiscal_documents.sql`, aplicada após as migrations anteriores. No Supabase, os registros ficam inacessíveis a `anon` e `authenticated`; as rotas do servidor consultam e gravam com `SUPABASE_SERVICE_ROLE_KEY`.
+O importador diferencia a coluna **Valor** (valor original) de **Saldo** (saldo ainda em aberto), tanto em Contas a Receber quanto em Contas a Pagar. Ao importar um relatório de saldos, ele concilia pelo tipo, documento, contraparte e vencimento, preserva o valor original já conhecido e atualiza o saldo; o valor pago é calculado pela diferença. Títulos vencidos que existiam no app mas não constam no relatório de saldos ficam preservados como **Revisão necessária**, bloqueando novas cobranças até conferência. Títulos futuros ausentes não são alterados, pois podem estar fora do escopo de um relatório de atrasados. Se o título ainda não tinha cadastro, o relatório de saldo não permite reconstruir o valor original; a importação avisa para conferi-lo no Bling.

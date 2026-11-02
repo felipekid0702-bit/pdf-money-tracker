@@ -3,6 +3,7 @@ import { todayISO } from "./finance";
 
 export interface ParsedRecord {
   type: MovementType;
+  amount_kind: "original" | "balance";
   document: string | null;
   counterparty: string | null;
   counterparty_document: string | null;
@@ -61,7 +62,7 @@ function toNumber(br: string): number {
 }
 
 const HEADER_TOKEN_RE =
-  /^(Cliente|Fornecedor|Forma(\s+de)?|de\s+pagamento|pagamento|Nro\.?|documento|Hist[oó]rico|Vencimento|Situa[cç][aã]o|valor|Emiss[aã]o|Total|P[aá]gina|Conta(\s+a)?(\s+(receber|pagar))?|a\s+(receber|pagar)|receber\/pagar)$/i;
+  /^(Cliente|Fornecedor|Forma(\s+de)?|de\s+pagamento|pagamento|Nro\.?|documento|Hist[oó]rico|Vencimento|Situa[cç][aã]o|Saldo|valor|Emiss[aã]o|Total|P[aá]gina|Conta(\s+a)?(\s+(receber|pagar))?|a\s+(receber|pagar)|receber\/pagar)$/i;
 
 /** tokens de cabeçalho/rodapé que nunca fazem parte de um registro real */
 function isNoiseToken(t: string): boolean {
@@ -117,6 +118,7 @@ export async function parseBlingPdf(
   const doc = await loadingTask.promise;
 
   let kind: MovementType | null = null;
+  let amountKind: ParsedRecord["amount_kind"] = "original";
   let histX: number | null = null;
   let pdfTotal: number | null = null;
   const records: ParsedRecord[] = [];
@@ -144,6 +146,7 @@ export async function parseBlingPdf(
       if (/Contas a Receber/i.test(pageText)) kind = "RECEITA";
       else if (/Contas a Pagar/i.test(pageText)) kind = "DESPESA";
     }
+    if (items.some((item) => /^Saldo$/i.test(item.str))) amountKind = "balance";
     if (histX === null) {
       const h = items.find((i) => /^Hist/i.test(i.str));
       if (h) histX = h.x;
@@ -243,6 +246,7 @@ export async function parseBlingPdf(
 
       const rec: ParsedRecord = {
         type: kind ?? "RECEITA",
+        amount_kind: amountKind,
         document,
         counterparty: nameParts.join(" ").trim() || null,
         counterparty_document: null,

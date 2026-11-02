@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef } from "react";
 import { AlertTriangle, CheckCircle2, FileUp, Loader2, Trash2 } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
-import { FiscalReportsImport } from "@/components/FiscalReportsImport";
 import { SectionCard } from "@/components/StatCard";
 import { useImportQueue, type ImportJob } from "@/lib/import-context";
 import { formatBRL } from "@/lib/finance";
@@ -35,10 +34,9 @@ function Importacao() {
   return (
     <AppLayout
       title="Importar relatório do Bling"
-      subtitle="Qualquer arquivo PDF do Bling, de qualquer tamanho ou nome. A importação continua mesmo se você mudar de tela."
+      subtitle="Importe apenas PDFs de Contas a Receber e Contas a Pagar. A importação continua mesmo se você mudar de tela."
     >
       <div className="space-y-5">
-        <FiscalReportsImport />
         <div className="grid gap-4 lg:grid-cols-2">
           <UploadBox
             title="Contas a Receber"
@@ -109,9 +107,11 @@ function JobCard({ job }: { job: ImportJob }) {
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-sm text-success">
           <CheckCircle2 className="size-4" />
-          {r.reviewApplied
-            ? "Registros deduplicados; ausências do PDF completo foram preservadas para revisão."
-            : "Registros processados com deduplicação; ausências não foram alteradas porque o arquivo não passou pelas validações para conferência completa."}
+          {r.reviewScope === "all"
+            ? "Importação conciliada; títulos ausentes do PDF completo foram preservados para revisão."
+            : r.reviewScope === "overdue"
+              ? "Títulos vencidos ausentes do relatório foram preservados para revisão."
+              : "Registros processados; títulos ausentes não foram alterados porque o relatório não passou pelas validações de conciliação."}
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Line label="Registros encontrados" value={String(r.found)} />
@@ -125,10 +125,37 @@ function JobCard({ job }: { job: ImportJob }) {
           <Line label="Ausentes do PDF (revisão)" value={String(r.reviewRequired)} />
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
-          <Line label="Valor total" value={formatBRL(r.total)} />
-          <Line label={r.type === "RECEITA" ? "Recebido" : "Pago"} value={formatBRL(r.paid)} />
-          <Line label="Em aberto" value={formatBRL(r.open)} />
+          <Line
+            label={r.amountKind === "balance" ? "Valor original conciliado" : "Valor total"}
+            value={formatBRL(r.total)}
+          />
+          <Line
+            label={
+              r.amountKind === "balance"
+                ? "Pago conciliado"
+                : r.type === "RECEITA"
+                  ? "Recebido"
+                  : "Pago"
+            }
+            value={formatBRL(r.paid)}
+          />
+          <Line
+            label={r.amountKind === "balance" ? "Saldo em aberto conciliado" : "Em aberto"}
+            value={formatBRL(r.open)}
+          />
         </div>
+        {r.amountKind === "balance" && (
+          <p className="text-xs text-muted-foreground">
+            Saldo informado no PDF: {formatBRL(r.pdfTotal ?? r.sourceAmountTotal)}. A importação
+            preserva o valor original e calcula o pago para títulos já cadastrados.
+          </p>
+        )}
+        {r.amountKind === "balance" && r.unmatchedBalanceCount > 0 && (
+          <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+            {r.unmatchedBalanceCount} título(s) não tinham cadastro anterior. Como o PDF informa
+            apenas o saldo, confira o valor original e os pagamentos desses títulos no Bling.
+          </div>
+        )}
         {r.warning && (
           <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
             {r.warning}
@@ -139,14 +166,14 @@ function JobCard({ job }: { job: ImportJob }) {
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
             <span>
               Divergência de totais: o PDF informa <strong>{formatBRL(r.pdfTotal)}</strong> e a soma
-              dos registros lidos é <strong>{formatBRL(r.total)}</strong> (diferença de{" "}
-              {formatBRL(r.divergence)}). Os valores individuais foram preservados.
+              dos valores da coluna lida é <strong>{formatBRL(r.sourceAmountTotal)}</strong>{" "}
+              (diferença de {formatBRL(r.divergence)}). Os valores individuais foram preservados.
             </span>
           </div>
         )}
         {r.pdfTotal !== null && r.divergence !== null && Math.abs(r.divergence) < 0.01 && (
           <p className="text-xs text-muted-foreground">
-            Total do PDF confere com o total calculado ({formatBRL(r.pdfTotal)}).
+            Total da coluna do PDF confere ({formatBRL(r.pdfTotal)}).
           </p>
         )}
         <RejectedList items={r.rejectedItems} divergence={r.divergence} />

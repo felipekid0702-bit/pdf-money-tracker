@@ -46,9 +46,11 @@ export function finState(m: Movement, today = todayISO()): FinState {
 /** Rótulo final exibido nas telas. */
 export function finStatusLabel(m: Movement, today = todayISO()): string {
   const st = finState(m, today);
+  const partiallySettled =
+    paidOf(m) > 0 || m.status === "PARCIALMENTE_RECEBIDO" || m.status === "PARCIALMENTE_PAGO";
   if (st === "REALIZADO") return m.type === "RECEITA" ? "Recebido" : "Pago";
-  if (st === "VENCIDO") return paidOf(m) > 0 ? "Vencido (parcial)" : "Vencido";
-  return paidOf(m) > 0 ? "Em aberto (parcial)" : "Em aberto";
+  if (st === "VENCIDO") return partiallySettled ? "Vencido (parcial)" : "Vencido";
+  return partiallySettled ? "Em aberto (parcial)" : "Em aberto";
 }
 
 export const FIN_STATE_OPTIONS: { id: FinState; label: string }[] = [
