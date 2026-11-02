@@ -44,10 +44,11 @@ export function MovementsPage({ type }: { type: MovementType }) {
   const { authenticated } = useBillingSession();
   const { filter, label } = usePeriod();
   const {
-    data: receivableEvents = [],
+    data: receivableHistory,
     error: receivableEventsError,
     isLoading: receivableEventsLoading,
   } = useReceivableEmailEvents({ from: null, to: null }, isReceita);
+  const receivableEvents = useMemo(() => receivableHistory?.events ?? [], [receivableHistory]);
   const today = todayISO();
   const [search, setSearch] = useState("");
   const [state, setState] = useState<"" | FinState>("");
