@@ -897,26 +897,26 @@ O projeto novo foi provisionado com as migrations versionadas em `supabase/migra
 
 O item **Ações de Cobrança**, separado de **Contas a Receber** na navegação, lista uma linha por título e permite filtrar pelo período e pelo tipo de ação (**Aviso de Vencimento**, **Email de título vencido** ou **Boleto enviado**). Exibe data do envio, cliente, destinatário, nota fiscal/parcela, valor e vencimento; para e-mails de títulos vencidos, também exibe os dias reais em atraso, não a faixa usada pela regra de envio. Envios de boleto registram também os nomes dos PDFs enviados. Na lista de Contas a Receber, o documento mostra um aviso ao passar o cursor quando houver confirmação inequívoca de envio de boleto para aquele título. As automações gravam primeiro a linha na planilha central, inclusive o destinatário, e depois atualizam `receivable_email_events`. A tabela de eventos é auxiliar: não cria nem atualiza títulos financeiros, cujos valores continuam sendo importados exclusivamente dos PDFs.
 
-## Avisos e cobranças via Microsoft Graph
+## Avisos e cobranças via API do Zoho Mail
 
-Em **Contas a Receber**, o botão de e-mail aparece automaticamente nos marcos D-14, D-7 e D-1 e a partir do primeiro dia de atraso. Ao acioná-lo, o servidor Vercel envia o e-mail diretamente pelo Microsoft Graph, sem colocá-lo em uma fila para processamento posterior; não depende do painel local nem do Outlook. O app envia um título por e-mail, usando o saldo em aberto, e grava a solicitação e o histórico do envio, além de salvar uma cópia em Itens Enviados. O servidor valida novamente o título, destinatário, saldo e período antes de enviar. A chave idempotente evita repetir o mesmo título no mesmo marco ou semana.
+O domínio `fpsolucao.com.br` recebe e-mails pelo Zoho Mail; o Outlook pode ser usado apenas como cliente de acesso à caixa. Em **Contas a Receber**, o botão aparece nos marcos D-14, D-7 e D-1 e a partir do primeiro dia de atraso. Ao acioná-lo, o servidor Vercel envia diretamente pela API HTTPS oficial do Zoho Mail, sem fila e sem depender de SMTP. O app envia um título por e-mail, usando o saldo em aberto, e grava a solicitação e o histórico do envio. O servidor valida novamente o título, destinatário, saldo e período antes de enviar. A chave idempotente evita repetir o mesmo título no mesmo marco ou semana.
 
 Antes de habilitar o fluxo:
 
 1. Aplique as migrations de `supabase/migrations/` no projeto `fxurtjedvjjtcvytrxvl`.
-2. No Microsoft Entra, configure um aplicativo com permissão **Application** `Mail.Send` e consentimento administrativo para a caixa remetente.
-3. Configure como variáveis privadas do projeto Vercel:
+2. No [Zoho API Console](https://api-console.zoho.com/), registre uma aplicação de servidor com o callback `https://<domínio-de-produção>/api/zoho/callback`. Substitua pelo domínio real da FP Financeiro. Solicite os escopos `ZohoMail.accounts.READ` e `ZohoMail.messages.CREATE` e acesso offline. Siga o [guia OAuth oficial do Zoho](https://www.zoho.com/mail/help/api/using-oauth-2.html); não compartilhe tokens ou segredos por chat.
+3. Configure como variáveis privadas de produção do projeto Vercel:
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY` — somente servidor; nunca use prefixo `VITE_`.
    - `BILLING_LOGIN_USERNAME`
    - `BILLING_LOGIN_PASSWORD` — senha aleatória com pelo menos 16 caracteres.
    - `BILLING_SESSION_SECRET` — segredo aleatório com pelo menos 32 caracteres.
-   - `MS_GRAPH_TENANT_ID`
-   - `MS_GRAPH_CLIENT_ID`
-   - `MS_GRAPH_CLIENT_SECRET`
-   - `MS_GRAPH_SENDER_EMAIL`
-4. Faça login pelo controle **Acesso de cobrança** no cabeçalho, abra **Configurações** e importe o JSON local de contatos. A lista é armazenada em `receivable_contacts`, sem permissões de leitura para `anon`/`authenticated`; o servidor usa a chave `service_role`.
-5. Valide primeiro em produção apenas com um título e destinatário de teste controlado pela empresa. O Graph envia de verdade assim que as credenciais estiverem configuradas; não há modo rascunho nesse endpoint.
+   - `ZOHO_CLIENT_ID`
+   - `ZOHO_CLIENT_SECRET`
+   - `ZOHO_SENDER_EMAIL` — por exemplo `financeiro@fpsolucao.com.br`.
+4. Faça um novo deploy depois de salvar as variáveis. Em **Configurações**, entre pelo controle **Acesso de cobrança** e use **Conectar Zoho Mail** para autorizar a caixa. O refresh token é armazenado em cookie `HttpOnly`, não é solicitado nem compartilhado pelo chat.
+5. Importe o JSON local de contatos. A lista é armazenada em `receivable_contacts`, sem permissões de leitura para `anon`/`authenticated`; o servidor usa a chave `service_role`.
+6. Valide em produção apenas com um título e destinatário controlado pela empresa; a API envia e-mails reais imediatamente.
 
 Não reutilize senha publicada em chat ou código. Cadastre uma senha nova e exclusiva diretamente na Vercel. A sessão de cobrança usa cookie `HttpOnly`, expira em 8 horas e o endpoint limita tentativas de login. Os e-mails de cobrança/aviso não incluem anexos; o fluxo de envio de boletos continua separado.
 

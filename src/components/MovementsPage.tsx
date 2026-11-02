@@ -475,9 +475,7 @@ function BillingSendButton({
         disabled={!authenticated || busy}
         onClick={send}
         title={
-          authenticated
-            ? "Envia imediatamente pelo Microsoft Graph"
-            : "Entre pelo controle no cabeçalho"
+          authenticated ? "Envia imediatamente pelo Zoho Mail" : "Entre pelo controle no cabeçalho"
         }
         className="rounded-md border border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
       >

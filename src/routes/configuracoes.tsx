@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Trash2, Upload } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { SectionCard } from "@/components/StatCard";
@@ -40,9 +40,26 @@ function Configuracoes() {
   const qc = useQueryClient();
   const { data } = useMovements();
   const { jobs, running: importing } = useImportQueue();
-  const { authenticated } = useBillingSession();
+  const { authenticated, zohoConnected, zohoConfigured } = useBillingSession();
   const [contactsBusy, setContactsBusy] = useState(false);
   const [contactsMessage, setContactsMessage] = useState("");
+  const [zohoMessage, setZohoMessage] = useState("");
+  useEffect(() => {
+    const result = new URLSearchParams(window.location.search).get("zoho");
+    if (!result) return;
+    const messages: Record<string, string> = {
+      connected: "Caixa Zoho conectada. Os próximos envios serão feitos diretamente.",
+      denied: "A autorização foi cancelada no Zoho; nenhum e-mail foi enviado.",
+      "invalid-state": "A autorização expirou ou não pôde ser validada. Tente conectar novamente.",
+      "not-configured": "A integração Zoho não está configurada na Vercel.",
+      "authorization-failed":
+        "Não foi possível concluir a autorização Zoho. Verifique a aplicação e as permissões.",
+    };
+    setZohoMessage(messages[result] ?? "Não foi possível conectar a caixa Zoho.");
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete("zoho");
+    window.history.replaceState({}, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+  }, []);
   const importsInProgress =
     importing ||
     jobs.some((job) => job.phase === "fila" || job.phase === "lendo" || job.phase === "gravando");
@@ -104,9 +121,38 @@ function Configuracoes() {
       <div className="space-y-5">
         <SectionCard
           title="Envio de cobranças"
-          description="O disparo é feito no servidor pela Microsoft Graph; não depende do painel local nem do Outlook."
+          description="O servidor envia diretamente pela API do Zoho Mail; não depende do Outlook aberto."
         >
           <div className="space-y-3">
+            <div className="space-y-2 rounded-md border border-border p-3">
+              <p className="text-sm font-medium">
+                Caixa de envio: {zohoConnected ? "Zoho Mail conectada" : "Zoho Mail não conectada"}
+              </p>
+              {authenticated && !zohoConfigured && (
+                <p className="text-xs text-muted-foreground">
+                  Configure ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET e ZOHO_SENDER_EMAIL nas variáveis
+                  privadas da Vercel e publique novamente antes de conectar.
+                </p>
+              )}
+              {authenticated && zohoConfigured && (
+                <a
+                  href="/api/billing?action=zoho_connect"
+                  className="inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+                >
+                  {zohoConnected ? "Reconectar Zoho Mail" : "Conectar Zoho Mail"}
+                </a>
+              )}
+              {!authenticated && (
+                <p className="text-xs text-muted-foreground">
+                  Entre pelo controle “Acesso de cobrança” no cabeçalho para conectar a caixa.
+                </p>
+              )}
+              {zohoMessage && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  {zohoMessage}
+                </p>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground">
               Importe o arquivo JSON de contatos da automação. Os endereços ficam em uma tabela
               privada e só são consultados pelo servidor para o envio.

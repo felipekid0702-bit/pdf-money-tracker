@@ -3,9 +3,15 @@ import type { FormEvent, ReactNode } from "react";
 
 interface BillingSessionValue {
   authenticated: boolean;
+  zohoConnected: boolean;
+  zohoConfigured: boolean;
 }
 
-const BillingSessionContext = createContext<BillingSessionValue>({ authenticated: false });
+const BillingSessionContext = createContext<BillingSessionValue>({
+  authenticated: false,
+  zohoConnected: false,
+  zohoConfigured: false,
+});
 
 export function useBillingSession(): BillingSessionValue {
   return useContext(BillingSessionContext);
@@ -13,14 +19,24 @@ export function useBillingSession(): BillingSessionValue {
 
 export function BillingAccessProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false);
+  const [zohoConnected, setZohoConnected] = useState(false);
+  const [zohoConfigured, setZohoConfigured] = useState(false);
 
   useEffect(() => {
     let active = true;
     fetch("/api/billing")
       .then(async (response) => {
         if (!response.ok) throw new Error("Não foi possível verificar o acesso de cobrança.");
-        const result = (await response.json()) as { authenticated?: boolean };
-        if (active) setAuthenticated(result.authenticated === true);
+        const result = (await response.json()) as {
+          authenticated?: boolean;
+          zohoConnected?: boolean;
+          zohoConfigured?: boolean;
+        };
+        if (active) {
+          setAuthenticated(result.authenticated === true);
+          setZohoConnected(result.zohoConnected === true);
+          setZohoConfigured(result.zohoConfigured === true);
+        }
       })
       .catch((error: unknown) => {
         console.error("[billing-session]", error);
@@ -30,7 +46,10 @@ export function BillingAccessProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const value = useMemo(() => ({ authenticated }), [authenticated]);
+  const value = useMemo(
+    () => ({ authenticated, zohoConnected, zohoConfigured }),
+    [authenticated, zohoConnected, zohoConfigured],
+  );
   return <BillingSessionContext.Provider value={value}>{children}</BillingSessionContext.Provider>;
 }
 

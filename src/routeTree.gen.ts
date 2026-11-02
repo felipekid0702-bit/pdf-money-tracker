@@ -18,6 +18,7 @@ import { Route as ContasAPagarRouteImport } from './routes/contas-a-pagar'
 import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
 import { Route as ImportacaoRouteImport } from './routes/importacao'
 import { Route as ApiBillingRouteImport } from './routes/api.billing'
+import { Route as ApiZohoCallbackRouteImport } from './routes/api.zoho.callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -64,6 +65,11 @@ const ApiBillingRoute = ApiBillingRouteImport.update({
   path: '/api/billing',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiZohoCallbackRoute = ApiZohoCallbackRouteImport.update({
+  id: '/api/zoho/callback',
+  path: '/api/zoho/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/contas-a-receber': typeof ContasAReceberRoute
   '/importacao': typeof ImportacaoRoute
   '/api/billing': typeof ApiBillingRoute
+  '/api/zoho/callback': typeof ApiZohoCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +93,7 @@ export interface FileRoutesByTo {
   '/contas-a-receber': typeof ContasAReceberRoute
   '/importacao': typeof ImportacaoRoute
   '/api/billing': typeof ApiBillingRoute
+  '/api/zoho/callback': typeof ApiZohoCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +106,7 @@ export interface FileRoutesById {
   '/contas-a-receber': typeof ContasAReceberRoute
   '/importacao': typeof ImportacaoRoute
   '/api/billing': typeof ApiBillingRoute
+  '/api/zoho/callback': typeof ApiZohoCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +120,7 @@ export interface FileRouteTypes {
     | '/contas-a-receber'
     | '/importacao'
     | '/api/billing'
+    | '/api/zoho/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +132,7 @@ export interface FileRouteTypes {
     | '/contas-a-receber'
     | '/importacao'
     | '/api/billing'
+    | '/api/zoho/callback'
   id:
     | '__root__'
     | '/'
@@ -133,6 +144,7 @@ export interface FileRouteTypes {
     | '/contas-a-receber'
     | '/importacao'
     | '/api/billing'
+    | '/api/zoho/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +157,7 @@ export interface RootRouteChildren {
   ContasAReceberRoute: typeof ContasAReceberRoute
   ImportacaoRoute: typeof ImportacaoRoute
   ApiBillingRoute: typeof ApiBillingRoute
+  ApiZohoCallbackRoute: typeof ApiZohoCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -212,6 +225,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBillingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/zoho/callback': {
+      id: '/api/zoho/callback'
+      path: '/api/zoho/callback'
+      fullPath: '/api/zoho/callback'
+      preLoaderRoute: typeof ApiZohoCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -225,6 +245,7 @@ const rootRouteChildren: RootRouteChildren = {
   ContasAReceberRoute: ContasAReceberRoute,
   ImportacaoRoute: ImportacaoRoute,
   ApiBillingRoute: ApiBillingRoute,
+  ApiZohoCallbackRoute: ApiZohoCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

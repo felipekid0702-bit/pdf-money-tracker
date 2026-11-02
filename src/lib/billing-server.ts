@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const SESSION_COOKIE = "fp-finance-session";
@@ -6,6 +6,9 @@ const SESSION_SECONDS = 8 * 60 * 60;
 const MAX_CONTACTS_BYTES = 1_000_000;
 const MAX_REQUEST_BYTES = 5_000_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ZOHO_OAUTH_STATE_COOKIE = "fp-zoho-oauth-state";
+const ZOHO_REFRESH_TOKEN_COOKIE = "fp-zoho-refresh-token";
+const ZOHO_OAUTH_SCOPES = "ZohoMail.accounts.READ,ZohoMail.messages.CREATE";
 
 function hasAdminDatabaseConfig(): boolean {
   return !!process.env["SUPABASE_URL"] && !!process.env["SUPABASE_SERVICE_ROLE_KEY"];
@@ -58,9 +61,30 @@ interface ContactImportRow {
   cc: string;
 }
 
-interface GraphToken {
+interface ZohoOAuthToken {
   access_token?: string;
-  expires_in?: number;
+  refresh_token?: string;
+}
+
+interface ZohoMailAccount {
+  accountId?: string;
+  primaryEmailAddress?: string;
+  mailboxAddress?: string;
+  emailAddress?: Array<{ mailId?: string }>;
+}
+
+interface ZohoApiStatus {
+  status?: { code?: number; description?: string };
+}
+
+interface ZohoAccountsResponse extends ZohoApiStatus {
+  data?: ZohoMailAccount[];
+}
+
+interface ZohoMailCredentials {
+  clientId: string;
+  clientSecret: string;
+  sender: string;
 }
 
 interface MailDefinition {
@@ -110,7 +134,12 @@ function readCookie(request: Request, name: string): string | null {
   const entry = cookies
     .map((cookie) => cookie.trim())
     .find((cookie) => cookie.startsWith(`${name}=`));
-  return entry ? entry.slice(name.length + 1) : null;
+  if (!entry) return null;
+  try {
+    return decodeURIComponent(entry.slice(name.length + 1));
+  } catch {
+    return null;
+  }
 }
 
 function authenticatedUsername(request: Request): string | null {
@@ -144,6 +173,18 @@ function authenticatedUsername(request: Request): string | null {
 function cookieHeader(value: string, request: Request, maxAge: number): string {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return `${SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
+
+function zohoCookieHeader(
+  name: string,
+  value: string,
+  request: Request,
+  maxAge: number,
+  path: string,
+  sameSite: "Lax" | "Strict" = "Lax",
+): string {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${name}=${encodeURIComponent(value)}; Path=${path}; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAge}${secure}`;
 }
 
 function normalizeName(value: string): string {
@@ -251,41 +292,171 @@ function buildMail(
   };
 }
 
-async function postJson(url: string, body: unknown, headers: HeadersInit = {}): Promise<Response> {
-  return fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...Object.fromEntries(new Headers(headers)) },
-    body: JSON.stringify(body),
-  });
+function zohoMailCredentials(): ZohoMailCredentials | null {
+  const clientId = process.env["ZOHO_CLIENT_ID"];
+  const clientSecret = process.env["ZOHO_CLIENT_SECRET"];
+  const sender = process.env["ZOHO_SENDER_EMAIL"];
+  if (!clientId || !clientSecret || !sender || !EMAIL_RE.test(sender)) {
+    return null;
+  }
+  return { clientId, clientSecret, sender };
 }
 
-async function getGraphToken(): Promise<string> {
-  const tenant = process.env["MS_GRAPH_TENANT_ID"];
-  const clientId = process.env["MS_GRAPH_CLIENT_ID"];
-  const clientSecret = process.env["MS_GRAPH_CLIENT_SECRET"];
-  if (!tenant || !clientId || !clientSecret) {
-    throw new Error("Microsoft Graph não configurado na Vercel.");
+async function getZohoAccessToken(
+  credentials: ZohoMailCredentials,
+  refreshToken: string,
+): Promise<string> {
+  const response = await fetch("https://accounts.zoho.com/oauth/v2/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Zoho OAuth recusou a renovação do token (HTTP ${response.status}).`);
+  }
+  const token = (await response.json()) as ZohoOAuthToken;
+  if (!token.access_token) throw new Error("Zoho OAuth não retornou um token de acesso.");
+  return token.access_token;
+}
+
+async function getZohoAccountId(accessToken: string, sender: string): Promise<string> {
+  const response = await fetch("https://mail.zoho.com/api/accounts", {
+    headers: { authorization: `Zoho-oauthtoken ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Zoho Mail recusou a consulta da caixa (HTTP ${response.status}).`);
+  }
+  const result = (await response.json()) as ZohoAccountsResponse;
+  if (result.status?.code !== 200 || !Array.isArray(result.data)) {
+    throw new Error("Zoho Mail não retornou as caixas autorizadas para o usuário.");
+  }
+  const normalizedSender = sender.toLowerCase();
+  const account = result.data.find(
+    (candidate) =>
+      candidate.primaryEmailAddress?.toLowerCase() === normalizedSender ||
+      candidate.mailboxAddress?.toLowerCase() === normalizedSender ||
+      candidate.emailAddress?.some((address) => address.mailId?.toLowerCase() === normalizedSender),
+  );
+  if (!account?.accountId) {
+    throw new Error("A caixa remetente não está autorizada na conta Zoho conectada.");
+  }
+  return account.accountId;
+}
+
+function settingsRedirect(request: Request, result: string, headers?: Headers): Response {
+  const url = new URL("/configuracoes", request.url);
+  url.searchParams.set("zoho", result);
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("location", url.toString());
+  responseHeaders.set("cache-control", "no-store");
+  return new Response(null, { status: 303, headers: responseHeaders });
+}
+
+function startZohoAuthorization(request: Request): Response {
+  if (!authenticatedUsername(request)) {
+    return jsonResponse({ error: "Entre na área de cobrança antes de conectar o Zoho Mail." }, 401);
+  }
+  const credentials = zohoMailCredentials();
+  if (!credentials) {
+    return jsonResponse(
+      {
+        error:
+          "Configure ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET e ZOHO_SENDER_EMAIL na Vercel antes de conectar.",
+      },
+      503,
+    );
   }
 
-  const tokenResponse = await fetch(
-    `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`,
-    {
+  const state = randomBytes(32).toString("base64url");
+  const redirectUri = new URL("/api/zoho/callback", request.url).toString();
+  const authorizationUrl = new URL("https://accounts.zoho.com/oauth/v2/auth");
+  authorizationUrl.search = new URLSearchParams({
+    client_id: credentials.clientId,
+    response_type: "code",
+    redirect_uri: redirectUri,
+    scope: ZOHO_OAUTH_SCOPES,
+    access_type: "offline",
+    prompt: "consent",
+    state,
+  }).toString();
+
+  const headers = new Headers({
+    location: authorizationUrl.toString(),
+    "cache-control": "no-store",
+  });
+  headers.append(
+    "set-cookie",
+    zohoCookieHeader(ZOHO_OAUTH_STATE_COOKIE, state, request, 600, "/api/zoho/callback"),
+  );
+  return new Response(null, { status: 302, headers });
+}
+
+export async function handleZohoOAuthCallback(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const state = url.searchParams.get("state");
+  const expectedState = readCookie(request, ZOHO_OAUTH_STATE_COOKIE);
+  const code = url.searchParams.get("code");
+  const oauthError = url.searchParams.get("error");
+  const headers = new Headers();
+  headers.append(
+    "set-cookie",
+    zohoCookieHeader(ZOHO_OAUTH_STATE_COOKIE, "", request, 0, "/api/zoho/callback"),
+  );
+
+  if (!state || !expectedState || !safeEqual(state, expectedState)) {
+    return settingsRedirect(request, "invalid-state", headers);
+  }
+  if (oauthError) return settingsRedirect(request, "denied", headers);
+  if (!code) return settingsRedirect(request, "invalid-state", headers);
+
+  const credentials = zohoMailCredentials();
+  if (!credentials) return settingsRedirect(request, "not-configured", headers);
+
+  const redirectUri = new URL("/api/zoho/callback", request.url).toString();
+  try {
+    const response = await fetch("https://accounts.zoho.com/oauth/v2/token", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        scope: "https://graph.microsoft.com/.default",
-        grant_type: "client_credentials",
+        code,
+        grant_type: "authorization_code",
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        redirect_uri: redirectUri,
       }),
-    },
-  );
-  if (!tokenResponse.ok) {
-    throw new Error(`Microsoft Graph recusou a autenticação (HTTP ${tokenResponse.status}).`);
+    });
+    if (!response.ok) {
+      console.error("[billing] Zoho OAuth recusou a autorização", response.status);
+      return settingsRedirect(request, "authorization-failed", headers);
+    }
+
+    const token = (await response.json()) as ZohoOAuthToken;
+    if (!token.refresh_token) {
+      console.error("[billing] Zoho OAuth não retornou refresh token");
+      return settingsRedirect(request, "authorization-failed", headers);
+    }
+
+    headers.append(
+      "set-cookie",
+      zohoCookieHeader(
+        ZOHO_REFRESH_TOKEN_COOKIE,
+        token.refresh_token,
+        request,
+        31_536_000,
+        "/api/billing",
+        "Strict",
+      ),
+    );
+    return settingsRedirect(request, "connected", headers);
+  } catch (error) {
+    console.error("[billing] falha ao concluir a autorização Zoho", error);
+    return settingsRedirect(request, "authorization-failed", headers);
   }
-  const token = (await tokenResponse.json()) as GraphToken;
-  if (!token.access_token) throw new Error("Microsoft Graph não retornou um token de acesso.");
-  return token.access_token;
 }
 
 async function importContacts(source: unknown): Promise<Response> {
@@ -346,7 +517,7 @@ async function importContacts(source: unknown): Promise<Response> {
   return jsonResponse({ imported: contacts.length, rejected: rejectedKeys.length });
 }
 
-async function sendBillingEmail(body: SendBody): Promise<Response> {
+async function sendBillingEmail(body: SendBody, request: Request): Promise<Response> {
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       body.movementId,
@@ -355,21 +526,20 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
     return jsonResponse({ error: "Identificador do título inválido." }, 400);
   }
 
-  const sender = process.env["MS_GRAPH_SENDER_EMAIL"];
+  const credentials = zohoMailCredentials();
+  const refreshToken = readCookie(request, ZOHO_REFRESH_TOKEN_COOKIE);
   if (!hasAdminDatabaseConfig()) {
     return jsonResponse(
       { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
       503,
     );
   }
-  if (
-    !sender ||
-    !process.env["MS_GRAPH_TENANT_ID"] ||
-    !process.env["MS_GRAPH_CLIENT_ID"] ||
-    !process.env["MS_GRAPH_CLIENT_SECRET"]
-  ) {
+  if (!credentials || !refreshToken) {
     return jsonResponse(
-      { error: "O envio por Microsoft Graph ainda não foi configurado na Vercel." },
+      {
+        error:
+          "Envio indisponível: conecte a caixa financeiro@fpsolucao.com.br à FP Financeiro pelo Zoho. Nenhum e-mail foi enviado.",
+      },
       503,
     );
   }
@@ -465,6 +635,22 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
     );
   }
 
+  let accessToken: string;
+  let accountId: string;
+  try {
+    accessToken = await getZohoAccessToken(credentials, refreshToken);
+    accountId = await getZohoAccountId(accessToken, credentials.sender);
+  } catch (error) {
+    console.error("[billing] falha ao autorizar a conta Zoho", error);
+    return jsonResponse(
+      {
+        error:
+          "Não foi possível autorizar a caixa no Zoho Mail. Revise a conexão OAuth e as permissões accounts.READ e messages.CREATE.",
+      },
+      502,
+    );
+  }
+
   const idempotencyKey = `${row.id}:${mail.actionType}:${periodKey}`;
   const { data: requestRow, error: reserveError } = await supabaseAdmin
     .from("receivable_email_requests")
@@ -492,63 +678,92 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
     return jsonResponse({ error: "Não foi possível reservar o envio com segurança." }, 500);
   }
 
-  let accessToken: string;
+  let zohoResponse: Response;
   try {
-    accessToken = await getGraphToken();
+    zohoResponse = await fetch(
+      `https://mail.zoho.com/api/accounts/${encodeURIComponent(accountId)}/messages`,
+      {
+        method: "POST",
+        signal: AbortSignal.timeout(20_000),
+        headers: {
+          authorization: `Zoho-oauthtoken ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          fromAddress: credentials.sender,
+          toAddress: recipients.join(","),
+          ...(cc.length ? { ccAddress: cc.join(",") } : {}),
+          subject: mail.subject,
+          content: mail.body,
+          mailFormat: "plaintext",
+          isSchedule: false,
+        }),
+      },
+    );
   } catch (error) {
-    console.error("[billing] falha ao autenticar no Microsoft Graph", error);
+    console.error("[billing] falha na chamada da API do Zoho Mail", error);
     const { error: updateError } = await supabaseAdmin
       .from("receivable_email_requests")
-      .update({ status: "failed", error_code: "graph_authentication_failed" })
+      .update({
+        status: "needs_review",
+        error_code: "zoho_api_network_error",
+      })
       .eq("id", requestRow.id);
     if (updateError)
-      console.error("[billing] falha ao registrar erro de autenticação Graph", updateError);
-    return jsonResponse(
-      { error: "Não foi possível autenticar no Microsoft Graph; nenhum e-mail foi enviado." },
-      502,
-    );
-  }
-
-  let graphResponse: Response;
-  try {
-    graphResponse = await postJson(
-      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`,
-      {
-        message: {
-          subject: mail.subject,
-          body: { contentType: "Text", content: mail.body },
-          toRecipients: recipients.map((address) => ({ emailAddress: { address } })),
-          ccRecipients: (cc ?? []).map((address) => ({ emailAddress: { address } })),
-        },
-        saveToSentItems: true,
-      },
-      { authorization: `Bearer ${accessToken}` },
-    );
-  } catch (error) {
-    console.error("[billing] falha na chamada do Microsoft Graph", error);
-    const { error: updateError } = await supabaseAdmin
-      .from("receivable_email_requests")
-      .update({ status: "needs_review", error_code: "graph_network_error" })
-      .eq("id", requestRow.id);
-    if (updateError) console.error("[billing] falha ao marcar envio para revisão", updateError);
+      console.error("[billing] falha ao registrar resultado incerto do Zoho Mail", updateError);
     return jsonResponse(
       {
         error:
-          "Não foi possível confirmar o resultado do envio no Microsoft Graph. Confira o Outlook e o histórico antes de tentar novamente.",
+          "Não foi possível confirmar se o Zoho Mail recebeu o e-mail. Confira a pasta Enviados e o histórico antes de tentar novamente.",
       },
       502,
     );
   }
 
-  if (graphResponse.status !== 202) {
-    const errorCode = `graph_http_${graphResponse.status}`;
+  let zohoResult: ZohoApiStatus | null = null;
+  try {
+    zohoResult = (await zohoResponse.json()) as ZohoApiStatus;
+  } catch (error) {
+    console.error("[billing] resposta inválida da API do Zoho Mail", error);
+    const definiteFailure = zohoResponse.status >= 400 && zohoResponse.status < 500;
     const { error: updateError } = await supabaseAdmin
       .from("receivable_email_requests")
-      .update({ status: "failed", error_code: errorCode })
+      .update({
+        status: definiteFailure ? "failed" : "needs_review",
+        error_code: `zoho_invalid_api_response_${zohoResponse.status}`,
+      })
       .eq("id", requestRow.id);
-    if (updateError) console.error("[billing] falha ao registrar rejeição Graph", updateError);
+    if (updateError)
+      console.error("[billing] falha ao registrar resposta inválida do Zoho", updateError);
     return jsonResponse(
-      { error: `O Microsoft Graph não aceitou o envio (HTTP ${graphResponse.status}).` },
+      {
+        error: definiteFailure
+          ? "O Zoho Mail recusou o envio; nenhum e-mail foi enviado."
+          : "Não foi possível confirmar se o Zoho Mail aceitou o envio. Confira a pasta Enviados antes de tentar novamente.",
+      },
+      502,
+    );
+  }
+  if (!zohoResponse.ok || zohoResult?.status?.code !== 200) {
+    const apiCode = zohoResult?.status?.code;
+    const definiteFailure =
+      (zohoResponse.status >= 400 && zohoResponse.status < 500) ||
+      (apiCode !== undefined && apiCode >= 400 && apiCode < 500);
+    const { error: updateError } = await supabaseAdmin
+      .from("receivable_email_requests")
+      .update({
+        status: definiteFailure ? "failed" : "needs_review",
+        error_code: `zoho_api_${apiCode ?? zohoResponse.status}`,
+      })
+      .eq("id", requestRow.id);
+    if (updateError)
+      console.error("[billing] falha ao registrar rejeição da API Zoho", updateError);
+    return jsonResponse(
+      {
+        error: definiteFailure
+          ? "O Zoho Mail recusou o envio. Nenhum e-mail foi enviado; revise a caixa e as permissões da integração."
+          : "Não foi possível confirmar se o Zoho Mail aceitou o e-mail. Confira a pasta Enviados antes de tentar novamente.",
+      },
       502,
     );
   }
@@ -602,7 +817,7 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
     return jsonResponse(
       {
         error:
-          "O Microsoft Graph aceitou o e-mail, mas o histórico não foi gravado. Não reenvie até conferir os Itens Enviados.",
+          "O Zoho Mail aceitou o e-mail, mas o histórico não foi gravado. Não reenvie até conferir a pasta Enviados.",
       },
       502,
     );
@@ -631,7 +846,13 @@ async function sendBillingEmail(body: SendBody): Promise<Response> {
 
 export async function handleBillingRequest(request: Request): Promise<Response> {
   if (request.method === "GET") {
-    return jsonResponse({ authenticated: !!authenticatedUsername(request) });
+    const action = new URL(request.url).searchParams.get("action");
+    if (action === "zoho_connect") return startZohoAuthorization(request);
+    return jsonResponse({
+      authenticated: !!authenticatedUsername(request),
+      zohoConnected: !!readCookie(request, ZOHO_REFRESH_TOKEN_COOKIE),
+      zohoConfigured: !!zohoMailCredentials(),
+    });
   }
 
   const originError = requireSameOrigin(request);
@@ -729,6 +950,10 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
   if (body.action === "logout") {
     const responseHeaders = new Headers();
     responseHeaders.append("Set-Cookie", cookieHeader("", request, 0));
+    responseHeaders.append(
+      "Set-Cookie",
+      zohoCookieHeader(ZOHO_REFRESH_TOKEN_COOKIE, "", request, 0, "/api/billing", "Strict"),
+    );
     return jsonResponse({ authenticated: false }, 200, responseHeaders);
   }
 
@@ -754,7 +979,7 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
     return importContacts(source);
   }
 
-  if (body.action === "send") return sendBillingEmail(body);
+  if (body.action === "send") return sendBillingEmail(body, request);
   if (body.action === "clear_financial_data") {
     if (!hasAdminDatabaseConfig()) {
       return jsonResponse(
