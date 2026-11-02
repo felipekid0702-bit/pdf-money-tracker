@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState } fro
 import type { ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { parseBlingPdf, type RejectedRecord } from "./pdf-parser";
-import { importRecords, type ImportSummary } from "./data";
+import type { ImportSummary } from "./data";
 import type { MovementType } from "./finance";
 
 export type JobPhase = "fila" | "lendo" | "gravando" | "concluido" | "erro";
@@ -78,19 +78,23 @@ export function ImportProvider({ children }: { children: ReactNode }) {
             detail: `Gravando ${parsed.records.length} registros…`,
             progress: 0.5,
           });
-          const summary = await importRecords(
-            parsed.records,
-            parsed.pdfTotal,
-            file.name,
-            parsed.found,
-            parsed.rejected,
-            (done, total) => {
-              patch(id, {
-                progress: 0.5 + (total ? done / total : 1) * 0.5,
-                detail: `Gravando ${done} de ${total} registros`,
-              });
-            },
-          );
+          const response = await fetch("/api/billing", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              action: "import_records",
+              records: parsed.records,
+              pdfTotal: parsed.pdfTotal,
+              fileName: file.name,
+              found: parsed.found,
+              rejected: parsed.rejected,
+            }),
+          });
+          const result = (await response.json()) as ImportSummary & { error?: string };
+          if (!response.ok) {
+            throw new Error(result.error ?? "Falha ao gravar os registros financeiros.");
+          }
+          const summary: ImportSummary = result;
           patch(id, {
             phase: "concluido",
             progress: 1,

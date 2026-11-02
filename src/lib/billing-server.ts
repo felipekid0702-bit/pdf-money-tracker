@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { ParsedRecord } from "./pdf-parser";
 
 const SESSION_COOKIE = "fp-finance-session";
 const SESSION_SECONDS = 8 * 60 * 60;
@@ -34,12 +35,26 @@ interface ImportContactsBody {
   contents: string;
 }
 
+interface ImportRecordsBody {
+  action: "import_records";
+  records: ParsedRecord[];
+  pdfTotal: number | null;
+  fileName: string;
+  found: number;
+  rejected: number;
+}
+
 interface ClearFinancialDataBody {
   action: "clear_financial_data";
 }
 
 type PostBody =
-  LoginBody | SendBody | ImportContactsBody | ClearFinancialDataBody | { action: "logout" };
+  | LoginBody
+  | SendBody
+  | ImportContactsBody
+  | ImportRecordsBody
+  | ClearFinancialDataBody
+  | { action: "logout" };
 
 interface MovementRow {
   id: string;
@@ -177,6 +192,66 @@ function authenticatedUsername(request: Request): string | null {
 function cookieHeader(value: string, request: Request, maxAge: number): string {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return `${SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNullableText(value: unknown, maxLength: number): value is string | null {
+  return value === null || (typeof value === "string" && value.length <= maxLength);
+}
+
+function isParsedRecord(value: unknown): value is ParsedRecord {
+  if (!isObject(value)) return false;
+  const isDate = (date: unknown) =>
+    date === null || (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date));
+  const type = value["type"];
+  const source = value["source"];
+  return (
+    (type === "RECEITA" || type === "DESPESA") &&
+    ((type === "RECEITA" && source === "BLING_RECEBER") ||
+      (type === "DESPESA" && source === "BLING_PAGAR")) &&
+    (value["amount_kind"] === "original" || value["amount_kind"] === "balance") &&
+    isNullableText(value["document"], 512) &&
+    isNullableText(value["counterparty"], 2048) &&
+    isNullableText(value["counterparty_document"], 128) &&
+    isNullableText(value["description"], 4096) &&
+    isDate(value["issue_date"]) &&
+    isDate(value["due_date"]) &&
+    isDate(value["payment_date"]) &&
+    Number.isFinite(value["original_amount"]) &&
+    Number.isFinite(value["paid_amount"]) &&
+    Number.isFinite(value["open_amount"]) &&
+    typeof value["paid_amount_known"] === "boolean" &&
+    typeof value["open_amount_known"] === "boolean" &&
+    typeof value["status"] === "string" &&
+    value["status"].length <= 128 &&
+    typeof value["source_file"] === "string" &&
+    value["source_file"].length <= 512 &&
+    typeof value["unique_key"] === "string" &&
+    value["unique_key"].length > 0 &&
+    value["unique_key"].length <= 2048
+  );
+}
+
+function isImportRecordsBody(value: unknown): value is ImportRecordsBody {
+  return (
+    isObject(value) &&
+    value["action"] === "import_records" &&
+    Array.isArray(value["records"]) &&
+    value["records"].length > 0 &&
+    value["records"].every(isParsedRecord) &&
+    (value["pdfTotal"] === null ||
+      (typeof value["pdfTotal"] === "number" && Number.isFinite(value["pdfTotal"]))) &&
+    typeof value["fileName"] === "string" &&
+    value["fileName"].trim().length > 0 &&
+    value["fileName"].length <= 512 &&
+    Number.isInteger(value["found"]) &&
+    Number.isInteger(value["rejected"]) &&
+    Number(value["found"]) >= value["records"].length &&
+    Number(value["rejected"]) >= 0
+  );
 }
 
 function zohoCookieHeader(
@@ -1023,7 +1098,7 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > MAX_REQUEST_BYTES) {
-    return jsonResponse({ error: "Arquivo de contatos excede o limite de 1 MB." }, 413);
+    return jsonResponse({ error: "A solicitação excede o limite permitido." }, 413);
   }
 
   const rawBody = await request.text();
@@ -1118,6 +1193,41 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
 
   if (!authenticatedUsername(request)) {
     return jsonResponse({ error: "Entre na área de cobrança antes de continuar." }, 401);
+  }
+
+  if (body.action === "import_records") {
+    if (!isImportRecordsBody(parsedBody)) {
+      return jsonResponse({ error: "Os dados do relatório são inválidos." }, 400);
+    }
+    if (!hasAdminDatabaseConfig()) {
+      return jsonResponse(
+        { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
+        503,
+      );
+    }
+    try {
+      const { importRecords } = await import("@/lib/data");
+      const summary = await importRecords(
+        body.records,
+        body.pdfTotal,
+        body.fileName,
+        body.found,
+        body.rejected,
+        supabaseAdmin,
+      );
+      return jsonResponse(summary);
+    } catch (error) {
+      console.error("[billing] falha ao importar relatório financeiro", error);
+      return jsonResponse(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Não foi possível gravar os registros financeiros.",
+        },
+        500,
+      );
+    }
   }
 
   if (body.action === "import_contacts") {

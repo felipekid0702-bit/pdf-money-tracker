@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
 import { todayISO, type Movement } from "./finance";
 import type { ParsedRecord } from "./pdf-parser";
 
@@ -205,6 +207,7 @@ export async function importRecords(
   fileName: string,
   found = records.length,
   rejected = 0,
+  database: SupabaseClient<Database>,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ImportSummary> {
   const recordType = records[0]?.type;
@@ -257,7 +260,7 @@ export async function importRecords(
   const pageSize = 1000;
 
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
+    const { data, error } = await database
       .from("financial_movements")
       .select("*")
       .eq("type", recordType)
@@ -433,7 +436,7 @@ export async function importRecords(
   const updateBatches = chunk(toUpdate, 400);
   let written = 0;
   await mapLimit(insertBatches, 3, async (batch) => {
-    const { error } = await supabase
+    const { error } = await database
       .from("financial_movements")
       .upsert(batch as never, { onConflict: "unique_key" });
     if (error) throw error;
@@ -441,7 +444,7 @@ export async function importRecords(
     onProgress?.(Math.round(records.length * 0.3 + written * 0.7), records.length);
   });
   await mapLimit(updateBatches, 3, async (batch) => {
-    const { error } = await supabase
+    const { error } = await database
       .from("financial_movements")
       .upsert(batch as never, { onConflict: "id" });
     if (error) throw error;
@@ -467,7 +470,7 @@ export async function importRecords(
         : [];
   if (rowsToReview.length) {
     await mapLimit(chunk(rowsToReview, 400), 3, async (batch) => {
-      const { error } = await supabase
+      const { error } = await database
         .from("financial_movements")
         .update({ sync_state: "review" })
         .in(
@@ -483,7 +486,7 @@ export async function importRecords(
       : allExisting.filter((row) => row.sync_state === "review" && !matchedExistingIds.has(row.id))
           .length;
 
-  const { error: batchError } = await supabase.from("import_batches").insert({
+  const { error: batchError } = await database.from("import_batches").insert({
     type: recordType,
     file_name: fileName,
     found_count: found,
