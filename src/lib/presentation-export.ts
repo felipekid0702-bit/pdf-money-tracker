@@ -7,6 +7,7 @@ export interface PresentationData {
   companyName: string;
   legalName: string;
   cnpj: string;
+  logoUrl: string;
   periodLabel: string;
   range: PeriodRange;
   generatedAt: string;
@@ -69,6 +70,10 @@ function metric(label: string, value: string, hint: string, tone = "blue"): stri
 
 function sectionTitle(title: string, subtitle: string): string {
   return `<div class="section-title"><h2>${esc(title)}</h2><p>${esc(subtitle)}</p></div>`;
+}
+
+function companyBrand(data: PresentationData, descriptor: string): string {
+  return `<div class="brand"><img class="brand-logo" src="${esc(data.logoUrl)}" alt=""><div><div class="eyebrow">${esc(data.companyName)} · ${esc(descriptor)}</div><div class="brand-name">${esc(data.legalName)}</div></div></div>`;
 }
 
 function formatCurrency(value: number): string {
@@ -196,7 +201,7 @@ function slide(
   data: PresentationData,
 ): string {
   return `<section class="page slide">
-    <div class="slide-head"><div class="eyebrow">${esc(data.companyName)} · BOARD DECK</div><div class="slide-number">${number.toString().padStart(2, "0")} / 07</div></div>
+    <div class="slide-head">${companyBrand(data, "BOARD DECK")}<div class="slide-number">${number.toString().padStart(2, "0")} / 07</div></div>
     <h1>${esc(title)}</h1><p class="takeaway">${esc(takeaway)}</p>
     <div class="slide-content">${content}</div>
     <footer><span>${esc(data.legalName)} · CNPJ ${esc(data.cnpj)}</span><span>${esc(periodText(data))}</span></footer>
@@ -213,7 +218,7 @@ function emailDocument(data: PresentationData): string {
         .join("")
     : "<li>Não há alertas automáticos relevantes para a posição atual.</li>";
   return `<section class="page email-page">
-    <div class="eyebrow">${esc(data.companyName)} · RESUMO FINANCEIRO</div>
+    ${companyBrand(data, "RESUMO FINANCEIRO")}
     <h1>Resumo executivo</h1>
     <p class="subtitle">${esc(periodText(data))} · Gerado em ${esc(data.generatedAt)}</p>
     <div class="metrics four">
@@ -360,6 +365,9 @@ function styles(kind: PresentationKind): string {
     h2 { margin: 0; font-size: 17px; }
     h3 { margin: 0 0 10px; font-size: 13px; }
     p { margin: 0; }
+    .brand { display: flex; align-items: center; gap: 9px; }
+    .brand-logo { width: 42px; height: 38px; object-fit: contain; }
+    .brand-name { margin-top: 3px; color: ${COLORS.muted}; font-size: 8px; }
     .eyebrow { color: ${COLORS.blue}; font-size: 9px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }
     .subtitle { margin: 0 0 17px; color: ${COLORS.muted}; font-size: 11px; }
     .section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 15px 0 5px; }

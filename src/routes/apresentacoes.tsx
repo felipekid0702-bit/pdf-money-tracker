@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { FileText, Presentation, Printer } from "lucide-react";
 import { toast } from "sonner";
+import fpLogo from "@/assets/FP Logo - Fundo Branco.png";
+import apoioVerticalLogo from "@/assets/Apoio Vertical Logo.jpeg";
 import { AppLayout } from "@/components/AppLayout";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState, SectionCard } from "@/components/StatCard";
@@ -81,6 +83,7 @@ function Apresentacoes() {
         companyName: company.name,
         legalName: company.legalName,
         cnpj: company.cnpj,
+        logoUrl: company.logo === "apoio-vertical" ? apoioVerticalLogo : fpLogo,
         periodLabel: label,
         range,
         generatedAt: new Intl.DateTimeFormat("pt-BR", {
