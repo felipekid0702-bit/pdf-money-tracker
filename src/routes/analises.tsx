@@ -25,7 +25,7 @@ export const Route = createFileRoute("/analises")({
       {
         name: "description",
         content:
-          "Rankings de clientes e fornecedores, aging, concentração e previsão determinística de fluxo da FP Solução em Altura.",
+          "Rankings de clientes e fornecedores, aging, concentração e previsão determinística de fluxo da empresa selecionada.",
       },
       { property: "og:title", content: "Análises financeiras | FP Financeiro" },
       {

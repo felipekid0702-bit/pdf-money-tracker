@@ -14,9 +14,10 @@ export interface ReceivableEmailHistory {
 }
 
 export async function fetchReceivableEmailEvents(
+  companyId: string,
   range: PeriodRange,
 ): Promise<ReceivableEmailHistory> {
-  const params = new URLSearchParams({ action: "events" });
+  const params = new URLSearchParams({ action: "events", companyId });
   if (range.from) params.set("from", range.from);
   if (range.to) params.set("to", range.to);
 

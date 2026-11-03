@@ -15,7 +15,7 @@ export const Route = createFileRoute("/calendario")({
       {
         name: "description",
         content:
-          "Calendário mensal com recebimentos, pagamentos, vencidos e fluxo líquido por dia da FP Solução em Altura.",
+          "Calendário mensal com recebimentos, pagamentos, vencidos e fluxo líquido por dia da empresa selecionada.",
       },
       { property: "og:title", content: "Calendário Financeiro | FP Financeiro" },
       {

@@ -3,8 +3,9 @@ import type { Database } from "@/integrations/supabase/types";
 import { todayISO, type Movement } from "./finance";
 import type { ParsedRecord } from "./pdf-parser";
 
-export async function fetchAllMovements(): Promise<Movement[]> {
-  const response = await fetch("/api/billing?action=movements");
+export async function fetchAllMovements(companyId: string): Promise<Movement[]> {
+  const params = new URLSearchParams({ action: "movements", companyId });
+  const response = await fetch(`/api/billing?${params.toString()}`);
   const result = (await response.json()) as Movement[] | { error?: string };
   if (!response.ok) {
     throw new Error(
@@ -18,6 +19,7 @@ export async function fetchAllMovements(): Promise<Movement[]> {
 }
 
 export async function fetchAllMovementsFromDatabase(
+  companyId: string,
   database: SupabaseClient<Database>,
 ): Promise<Movement[]> {
   const pageSize = 1000;
@@ -26,6 +28,7 @@ export async function fetchAllMovementsFromDatabase(
   const firstPage = await database
     .from("financial_movements")
     .select(columns, { count: "exact" })
+    .eq("company_id", companyId)
     .order("due_date", { ascending: true })
     .order("id", { ascending: true })
     .range(0, pageSize - 1);
@@ -47,6 +50,7 @@ export async function fetchAllMovementsFromDatabase(
         database
           .from("financial_movements")
           .select(columns)
+          .eq("company_id", companyId)
           .order("due_date", { ascending: true })
           .order("id", { ascending: true })
           .range(pageIndex * pageSize, (pageIndex + 1) * pageSize - 1),
@@ -68,7 +72,8 @@ export async function fetchAllMovementsFromDatabase(
 
   const { count: currentCount, error: countError } = await database
     .from("financial_movements")
-    .select("id", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId);
   if (countError) throw countError;
   if (currentCount !== firstPage.count) {
     throw new Error(
@@ -153,8 +158,9 @@ function movementDocumentDueKey(movement: {
   return JSON.stringify([movement.type, document, movement.due_date]);
 }
 
-function toDatabaseRecord(record: ParsedRecord): Record<string, unknown> {
+function toDatabaseRecord(record: ParsedRecord, companyId: string): Record<string, unknown> {
   return {
+    company_id: companyId,
     type: record.type,
     document: record.document,
     counterparty: record.counterparty,
@@ -194,6 +200,7 @@ async function mapLimit<T, R>(
 }
 
 interface ExistingRow {
+  company_id: string;
   id: string;
   unique_key: string;
   paid_amount: number | string;
@@ -223,6 +230,7 @@ export async function importRecords(
   found = records.length,
   rejected = 0,
   database: SupabaseClient<Database>,
+  companyId: string,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ImportSummary> {
   const recordType = records[0]?.type;
@@ -278,6 +286,7 @@ export async function importRecords(
     const { data, error } = await database
       .from("financial_movements")
       .select("*")
+      .eq("company_id", companyId)
       .eq("type", recordType)
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
@@ -418,6 +427,7 @@ export async function importRecords(
     if (!Object.keys(patch).length) continue;
 
     toUpdate.push({
+      company_id: companyId,
       id: previous.id,
       type: previous.type,
       document: previous.document,
@@ -445,7 +455,10 @@ export async function importRecords(
   const total =
     effectiveRecords.reduce((sum, record) => sum + cents(record.original_amount), 0) / 100;
   const insertBatches = chunk(
-    toInsert.map((record) => ({ ...toDatabaseRecord(record), sync_state: "current" })),
+    toInsert.map((record) => ({
+      ...toDatabaseRecord(record, companyId),
+      sync_state: "current",
+    })),
     400,
   );
   const updateBatches = chunk(toUpdate, 400);
@@ -453,7 +466,7 @@ export async function importRecords(
   await mapLimit(insertBatches, 3, async (batch) => {
     const { error } = await database
       .from("financial_movements")
-      .upsert(batch as never, { onConflict: "unique_key" });
+      .upsert(batch as never, { onConflict: "company_id,unique_key" });
     if (error) throw error;
     written += batch.length;
     onProgress?.(Math.round(records.length * 0.3 + written * 0.7), records.length);
@@ -488,6 +501,7 @@ export async function importRecords(
       const { error } = await database
         .from("financial_movements")
         .update({ sync_state: "review" })
+        .eq("company_id", companyId)
         .in(
           "id",
           batch.map((row) => row.id),
@@ -502,6 +516,7 @@ export async function importRecords(
           .length;
 
   const { error: batchError } = await database.from("import_batches").insert({
+    company_id: companyId,
     type: recordType,
     file_name: fileName,
     found_count: found,
@@ -539,11 +554,11 @@ export async function importRecords(
   };
 }
 
-export async function clearAllData(): Promise<void> {
+export async function clearAllData(companyId: string): Promise<void> {
   const response = await fetch("/api/billing", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action: "clear_financial_data" }),
+    body: JSON.stringify({ action: "clear_financial_data", companyId }),
   });
   const result = (await response.json()) as { error?: string };
   if (!response.ok) throw new Error(result.error ?? "Falha ao apagar os dados.");
@@ -563,8 +578,11 @@ export interface PartialBalanceMovement {
   status: string;
 }
 
-export async function fetchPendingPartialBalances(): Promise<PartialBalanceMovement[]> {
-  const response = await fetch("/api/billing?action=partial_balances");
+export async function fetchPendingPartialBalances(
+  companyId: string,
+): Promise<PartialBalanceMovement[]> {
+  const params = new URLSearchParams({ action: "partial_balances", companyId });
+  const response = await fetch(`/api/billing?${params.toString()}`);
   const result = (await response.json()) as PartialBalanceMovement[] | { error?: string };
   if (!response.ok) {
     throw new Error(
@@ -578,11 +596,13 @@ export async function fetchPendingPartialBalances(): Promise<PartialBalanceMovem
 }
 
 export async function fetchPendingPartialBalancesFromDatabase(
+  companyId: string,
   database: SupabaseClient<Database>,
 ): Promise<PartialBalanceMovement[]> {
   const { data, error } = await database
     .from("financial_movements")
     .select("id,document,counterparty,due_date,original_amount,status")
+    .eq("company_id", companyId)
     .in("status", ["PARCIALMENTE_RECEBIDO", "PARCIALMENTE_PAGO"])
     .eq("open_amount_known", false)
     .eq("sync_state", "current")
@@ -595,12 +615,13 @@ export async function fetchPendingPartialBalancesFromDatabase(
 }
 
 export async function savePartialBalanceAdjustments(
+  companyId: string,
   adjustments: PartialBalanceAdjustment[],
 ): Promise<void> {
   const response = await fetch("/api/billing", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action: "save_partial_balances", adjustments }),
+    body: JSON.stringify({ action: "save_partial_balances", companyId, adjustments }),
   });
   const result = (await response.json()) as { error?: string };
   if (!response.ok) {
@@ -609,6 +630,7 @@ export async function savePartialBalanceAdjustments(
 }
 
 export async function savePartialBalanceAdjustmentsToDatabase(
+  companyId: string,
   adjustments: PartialBalanceAdjustment[],
   database: SupabaseClient<Database>,
 ): Promise<void> {
@@ -622,6 +644,7 @@ export async function savePartialBalanceAdjustmentsToDatabase(
   const { data, error } = await database
     .from("financial_movements")
     .select("id,original_amount,status,open_amount_known")
+    .eq("company_id", companyId)
     .in("id", ids);
   if (error) throw error;
 
@@ -671,6 +694,7 @@ export async function savePartialBalanceAdjustmentsToDatabase(
         paid_amount_known: true,
         open_amount_known: true,
       })
+      .eq("company_id", companyId)
       .eq("id", adjustment.id)
       .eq("status", adjustment.status)
       .eq("open_amount_known", false)

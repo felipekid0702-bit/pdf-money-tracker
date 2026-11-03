@@ -10,6 +10,7 @@ export type Database = {
     Tables: {
       financial_movements: {
         Row: {
+          company_id: string;
           counterparty: string | null;
           counterparty_document: string | null;
           created_at: string;
@@ -34,6 +35,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          company_id: string;
           counterparty?: string | null;
           counterparty_document?: string | null;
           created_at?: string;
@@ -58,6 +60,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          company_id?: string;
           counterparty?: string | null;
           counterparty_document?: string | null;
           created_at?: string;
@@ -85,6 +88,7 @@ export type Database = {
       };
       import_batches: {
         Row: {
+          company_id: string;
           created_at: string;
           existing_count: number;
           file_name: string | null;
@@ -101,6 +105,7 @@ export type Database = {
           updated_count: number;
         };
         Insert: {
+          company_id: string;
           created_at?: string;
           existing_count?: number;
           file_name?: string | null;
@@ -117,6 +122,7 @@ export type Database = {
           updated_count?: number;
         };
         Update: {
+          company_id?: string;
           created_at?: string;
           existing_count?: number;
           file_name?: string | null;
@@ -136,6 +142,7 @@ export type Database = {
       };
       receivable_email_events: {
         Row: {
+          company_id: string;
           action_type: "cobranca_vencido" | "aviso_vencimento" | "boleto_enviado";
           event_key: string;
           id: string;
@@ -149,6 +156,7 @@ export type Database = {
           title_details: Json;
         };
         Insert: {
+          company_id: string;
           action_type: "cobranca_vencido" | "aviso_vencimento" | "boleto_enviado";
           event_key: string;
           id?: string;
@@ -162,6 +170,7 @@ export type Database = {
           title_details?: Json;
         };
         Update: {
+          company_id?: string;
           action_type?: "cobranca_vencido" | "aviso_vencimento" | "boleto_enviado";
           event_key?: string;
           id?: string;
@@ -178,6 +187,7 @@ export type Database = {
       };
       receivable_contacts: {
         Row: {
+          company_id: string;
           id: string;
           match_key: string;
           counterparty_name: string;
@@ -186,6 +196,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          company_id: string;
           id?: string;
           match_key: string;
           counterparty_name: string;
@@ -194,6 +205,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          company_id?: string;
           id?: string;
           match_key?: string;
           counterparty_name?: string;
@@ -205,6 +217,7 @@ export type Database = {
       };
       receivable_email_requests: {
         Row: {
+          company_id: string;
           id: string;
           idempotency_key: string;
           movement_id: string | null;
@@ -227,6 +240,7 @@ export type Database = {
           sent_at: string | null;
         };
         Insert: {
+          company_id: string;
           id?: string;
           idempotency_key: string;
           movement_id?: string | null;
@@ -249,6 +263,7 @@ export type Database = {
           sent_at?: string | null;
         };
         Update: {
+          company_id?: string;
           id?: string;
           idempotency_key?: string;
           movement_id?: string | null;
@@ -297,6 +312,7 @@ export type Database = {
     Functions: {
       sync_financial_movements: {
         Args: {
+          p_company_id: string;
           p_existing_count: number;
           p_file_name: string;
           p_found_count: number;
@@ -316,7 +332,7 @@ export type Database = {
         Returns: boolean;
       };
       clear_financial_data: {
-        Args: Record<PropertyKey, never>;
+        Args: { p_company_id: string };
         Returns: undefined;
       };
     };

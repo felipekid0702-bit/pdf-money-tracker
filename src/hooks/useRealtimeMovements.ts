@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useCompany } from "@/lib/company-context";
 
 /** Mantém movimentos e ações de envio sincronizados em tempo real. */
 export function useRealtimeMovements() {
   const qc = useQueryClient();
+  const { company } = useCompany();
 
   useEffect(() => {
     let movementsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -20,7 +22,7 @@ export function useRealtimeMovements() {
         if (!movementsDirty) return;
         movementsDirty = false;
         lastMovementsInvalidation = Date.now();
-        void qc.invalidateQueries({ queryKey: ["movements"] });
+        void qc.invalidateQueries({ queryKey: ["movements", company.id] });
       }, delay);
     };
 
@@ -41,7 +43,7 @@ export function useRealtimeMovements() {
         () => {
           if (eventsTimer) clearTimeout(eventsTimer);
           eventsTimer = setTimeout(() => {
-            void qc.invalidateQueries({ queryKey: ["receivable-email-events"] });
+            void qc.invalidateQueries({ queryKey: ["receivable-email-events", company.id] });
           }, 800);
         },
       )
@@ -53,5 +55,5 @@ export function useRealtimeMovements() {
       void supabase.removeChannel(channel);
       void supabase.removeChannel(eventsChannel);
     };
-  }, [qc]);
+  }, [company.id, qc]);
 }

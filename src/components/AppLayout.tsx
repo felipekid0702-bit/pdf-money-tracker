@@ -14,7 +14,9 @@ import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { BillingAccessControl } from "@/lib/billing-session";
 import logo from "@/assets/FP Logo - Fundo Branco.png";
+import apoioVerticalLogo from "@/assets/Apoio Vertical Logo.jpeg";
 import { NyansapoMark } from "@/components/NyansapoMark";
+import { useCompany } from "@/lib/company-context";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -39,6 +41,7 @@ export function AppLayout({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const { company, companies, setCompanyId } = useCompany();
 
   const nav = (
     <nav className="flex flex-col gap-1 p-3">
@@ -89,6 +92,26 @@ export function AppLayout({
             <h1 className="truncate text-lg font-semibold">{title}</h1>
             {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
           </div>
+          <label className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5">
+            <span className="sr-only">Empresa ativa</span>
+            <img
+              src={company.logo === "apoio-vertical" ? apoioVerticalLogo : logo}
+              alt=""
+              className="size-7 shrink-0 rounded-sm object-contain"
+            />
+            <select
+              value={company.id}
+              onChange={(event) => setCompanyId(event.currentTarget.value)}
+              className="max-w-40 bg-transparent text-xs font-medium outline-none sm:max-w-52 sm:text-sm"
+              aria-label="Selecionar empresa"
+            >
+              {companies.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
           {actions}
           <BillingAccessControl />
         </header>
@@ -102,30 +125,31 @@ export function AppLayout({
 }
 
 function Brand() {
+  const { company } = useCompany();
   return (
     <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
-      <LogoMark />
+      <LogoMark company={company} />
       <div className="min-w-0">
         <div className="text-base font-semibold tracking-tight text-sidebar-accent-foreground">
           FP Financeiro
         </div>
         <div className="mt-0.5 truncate text-[11px] leading-tight text-sidebar-foreground/60">
-          FP SOLUÇÃO EM ALTURA LTDA
+          {company.legalName}
         </div>
       </div>
     </div>
   );
 }
 
-function LogoMark() {
+function LogoMark({ company }: { company: ReturnType<typeof useCompany>["company"] }) {
   return (
     <div
       className="flex size-11 shrink-0 items-center justify-center rounded-md bg-card p-1"
       role="img"
-      aria-label="FP Solução em Altura"
+      aria-label={company.name}
     >
       <img
-        src={logo}
+        src={company.logo === "apoio-vertical" ? apoioVerticalLogo : logo}
         alt=""
         className="size-full object-contain"
         onError={(event) => {

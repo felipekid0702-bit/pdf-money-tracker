@@ -15,11 +15,13 @@ import { formatBRL, formatDate } from "@/lib/finance";
 import { savePartialBalanceAdjustments } from "@/lib/data";
 import type { PartialBalanceMovement } from "@/lib/data";
 import { useImportQueue } from "@/lib/import-context";
+import { useCompany } from "@/lib/company-context";
 
 /** Barra flutuante global: a importação continua mesmo trocando de tela. */
 export function ImportStatusBar() {
   const { jobs } = useImportQueue();
   const queryClient = useQueryClient();
+  const { company } = useCompany();
   const { data: partials = [], error: partialBalancesError } = usePendingPartialBalances();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dismissedKey, setDismissedKey] = useState("");
@@ -77,14 +79,14 @@ export function ImportStatusBar() {
     setSaving(true);
     setErrorMessage("");
     try {
-      await savePartialBalanceAdjustments(adjustments);
-      await queryClient.invalidateQueries({ queryKey: ["movements"] });
-      await queryClient.invalidateQueries({ queryKey: ["partial-balances"] });
+      await savePartialBalanceAdjustments(company.id, adjustments);
+      await queryClient.invalidateQueries({ queryKey: ["movements", company.id] });
+      await queryClient.invalidateQueries({ queryKey: ["partial-balances", company.id] });
       setDismissedKey(partialKey);
       setDialogOpen(false);
     } catch (error) {
-      await queryClient.invalidateQueries({ queryKey: ["movements"] });
-      await queryClient.invalidateQueries({ queryKey: ["partial-balances"] });
+      await queryClient.invalidateQueries({ queryKey: ["movements", company.id] });
+      await queryClient.invalidateQueries({ queryKey: ["partial-balances", company.id] });
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -139,7 +141,9 @@ export function ImportStatusBar() {
           <span>Não foi possível verificar os saldos parciais para ajuste.</span>
           <button
             type="button"
-            onClick={() => void queryClient.invalidateQueries({ queryKey: ["partial-balances"] })}
+            onClick={() =>
+              void queryClient.invalidateQueries({ queryKey: ["partial-balances", company.id] })
+            }
             className="shrink-0 underline"
           >
             Tentar novamente

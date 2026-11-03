@@ -16,6 +16,7 @@ import { ImportStatusBar } from "@/components/ImportStatusBar";
 import { useRealtimeMovements } from "@/hooks/useRealtimeMovements";
 import { reportLovableError } from "@/lib/lovable-error-reporting";
 import { BillingAccessProvider } from "@/lib/billing-session";
+import { CompanyProvider } from "@/lib/company-context";
 
 function NotFoundComponent() {
   return (
@@ -86,9 +87,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "Agregador financeiro da FP Solução em Altura: contas a receber e a pagar importadas dos relatórios do Bling.",
+          "Agregador financeiro multempresa: contas a receber e a pagar importadas dos relatórios do Bling.",
       },
-      { name: "author", content: "FP Solução em Altura" },
+      { name: "author", content: "FP Financeiro" },
       { property: "og:title", content: "FP Financeiro" },
       {
         property: "og:description",
@@ -142,11 +143,13 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ImportProvider>
-        <BillingAccessProvider>
-          <AppShell />
-        </BillingAccessProvider>
-      </ImportProvider>
+      <CompanyProvider>
+        <ImportProvider>
+          <BillingAccessProvider>
+            <AppShell />
+          </BillingAccessProvider>
+        </ImportProvider>
+      </CompanyProvider>
     </QueryClientProvider>
   );
 }

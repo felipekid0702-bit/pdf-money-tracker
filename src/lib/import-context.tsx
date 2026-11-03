@@ -4,12 +4,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { parseBlingPdf, type RejectedRecord } from "./pdf-parser";
 import type { ImportSummary } from "./data";
 import type { MovementType } from "./finance";
+import { useCompany } from "@/lib/company-context";
 
 export type JobPhase = "fila" | "lendo" | "gravando" | "concluido" | "erro";
 
 export interface ImportJob {
   id: string;
   fileName: string;
+  companyId: string;
+  companyName: string;
   expected: MovementType;
   phase: JobPhase;
   progress: number; // 0..1
@@ -38,8 +41,17 @@ export function useImportQueue(): ImportContextValue {
 }
 
 export function ImportProvider({ children }: { children: ReactNode }) {
+  const { company, ready } = useCompany();
   const [jobs, setJobs] = useState<ImportJob[]>([]);
-  const queueRef = useRef<Array<{ id: string; file: File; expected: MovementType }>>([]);
+  const queueRef = useRef<
+    Array<{
+      id: string;
+      file: File;
+      expected: MovementType;
+      companyId: string;
+      companyName: string;
+    }>
+  >([]);
   const runningRef = useRef(false);
   const [running, setRunning] = useState(false);
   const qc = useQueryClient();
@@ -56,7 +68,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
       for (;;) {
         const next = queueRef.current.shift();
         if (!next) break;
-        const { id, file, expected } = next;
+        const { id, file, expected, companyId, companyName } = next;
         try {
           patch(id, { phase: "lendo", detail: "Lendo PDF…", progress: 0 });
           const parsed = await parseBlingPdf(file, (page, pages) => {
@@ -83,6 +95,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               action: "import_records",
+              companyId,
               records: parsed.records,
               pdfTotal: parsed.pdfTotal,
               fileName: file.name,
@@ -98,7 +111,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
           patch(id, {
             phase: "concluido",
             progress: 1,
-            detail: "Importação concluída",
+            detail: `Importação concluída para ${companyName}`,
             summary: {
               ...summary,
               type: parsed.type,
@@ -112,8 +125,8 @@ export function ImportProvider({ children }: { children: ReactNode }) {
                 : {}),
             },
           });
-          await qc.invalidateQueries({ queryKey: ["movements"] });
-          await qc.invalidateQueries({ queryKey: ["partial-balances"] });
+          await qc.invalidateQueries({ queryKey: ["movements", companyId] });
+          await qc.invalidateQueries({ queryKey: ["partial-balances", companyId] });
         } catch (e) {
           const msg =
             e instanceof Error
@@ -135,16 +148,30 @@ export function ImportProvider({ children }: { children: ReactNode }) {
 
   const enqueue = useCallback(
     (files: File[], expected: MovementType) => {
+      if (!ready) {
+        throw new Error("Aguarde a identificação da empresa ativa antes de importar.");
+      }
+      if (
+        !window.confirm(
+          `Você está importando dados para: ${company.name.toLocaleUpperCase("pt-BR")}. Deseja continuar?`,
+        )
+      ) {
+        return;
+      }
       const created = files.map((file) => ({
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
         expected,
+        companyId: company.id,
+        companyName: company.name,
       }));
       setJobs((prev) => [
         ...prev,
         ...created.map<ImportJob>(({ id, file }) => ({
           id,
           fileName: file.name,
+          companyId: company.id,
+          companyName: company.name,
           expected,
           phase: "fila",
           progress: 0,
@@ -154,7 +181,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
       queueRef.current.push(...created);
       void drain();
     },
-    [drain],
+    [company, drain, ready],
   );
 
   const clearFinished = useCallback(() => {

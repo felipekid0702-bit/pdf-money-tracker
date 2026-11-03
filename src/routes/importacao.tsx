@@ -6,6 +6,7 @@ import { SectionCard } from "@/components/StatCard";
 import { useImportQueue, type ImportJob } from "@/lib/import-context";
 import { formatBRL } from "@/lib/finance";
 import type { RejectedRecord } from "@/lib/pdf-parser";
+import { useCompany } from "@/lib/company-context";
 
 export const Route = createFileRoute("/importacao")({
   head: () => ({
@@ -30,22 +31,36 @@ export const Route = createFileRoute("/importacao")({
 
 function Importacao() {
   const { jobs, enqueue, clearFinished } = useImportQueue();
+  const { company, ready } = useCompany();
 
   return (
     <AppLayout
       title="Importar relatório do Bling"
-      subtitle="Importe apenas PDFs de Contas a Receber e Contas a Pagar. A importação continua mesmo se você mudar de tela."
+      subtitle={`A importação será vinculada exclusivamente a ${company.name}.`}
     >
       <div className="space-y-5">
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+          Você está importando dados para:{" "}
+          <strong>{company.name.toLocaleUpperCase("pt-BR")}</strong>.
+          {!ready && <span className="ml-1 text-muted-foreground">Carregando empresa ativa…</span>}
+          {company.slug === "apoio-vertical" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Nomes padrão: “Bling - Relatório de Contas a Receber Apoio.pdf” e “Bling - Relatório
+              de Contas a Pagar Apoio.pdf”.
+            </p>
+          )}
+        </div>
         <div className="grid gap-4 lg:grid-cols-2">
           <UploadBox
             title="Contas a Receber"
             hint="Os registros serão importados como RECEITA."
+            disabled={!ready}
             onFiles={(f) => enqueue(f, "RECEITA")}
           />
           <UploadBox
             title="Contas a Pagar"
             hint="Os registros serão importados como DESPESA."
+            disabled={!ready}
             onFiles={(f) => enqueue(f, "DESPESA")}
           />
         </div>
@@ -77,7 +92,7 @@ function JobCard({ job }: { job: ImportJob }) {
       <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/8 p-4 text-sm text-destructive">
         <AlertTriangle className="mt-0.5 size-4 shrink-0" />
         <span>
-          <strong>{job.fileName}</strong> — {job.error}
+          <strong>{job.fileName}</strong> — {job.companyName}: {job.error}
         </span>
       </div>
     );
@@ -90,6 +105,7 @@ function JobCard({ job }: { job: ImportJob }) {
           <Loader2 className="size-4 animate-spin text-primary" />
           {job.fileName}
         </div>
+        <p className="mt-1 text-xs text-muted-foreground">Empresa de destino: {job.companyName}</p>
         <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
             className="h-full rounded-full bg-primary transition-all"
@@ -103,7 +119,10 @@ function JobCard({ job }: { job: ImportJob }) {
 
   const r = job.summary!;
   return (
-    <SectionCard title="Importação concluída" description={`${job.fileName} — ${r.type}`}>
+    <SectionCard
+      title="Importação concluída"
+      description={`${job.fileName} — ${r.type} — ${job.companyName}`}
+    >
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-sm text-success">
           <CheckCircle2 className="size-4" />
@@ -259,10 +278,12 @@ function Line({ label, value }: { label: string; value: string }) {
 function UploadBox({
   title,
   hint,
+  disabled,
   onFiles,
 }: {
   title: string;
   hint: string;
+  disabled: boolean;
   onFiles: (f: File[]) => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -283,14 +304,17 @@ function UploadBox({
         }}
       />
       <button
+        type="button"
+        disabled={disabled}
         onClick={() => ref.current?.click()}
         onDrop={(e) => {
+          if (disabled) return;
           e.preventDefault();
           const files = Array.from(e.dataTransfer.files).filter((f) => /\.pdf$/i.test(f.name));
           if (files.length) onFiles(files);
         }}
         onDragOver={(e) => e.preventDefault()}
-        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-input bg-muted/30 px-4 py-8 text-sm font-medium transition-colors hover:bg-muted"
+        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-input bg-muted/30 px-4 py-8 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
       >
         <FileUp className="size-4" /> Selecionar ou arrastar PDFs
       </button>

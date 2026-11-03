@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { isCompanyId } from "@/lib/companies";
 import type { PartialBalanceAdjustment } from "./data";
 import type { ParsedRecord } from "./pdf-parser";
 
@@ -28,6 +29,7 @@ interface LoginBody {
 
 interface SendBody {
   action: "send";
+  companyId: string;
   movementId: string;
   recipientEmail: string;
   ccEmail: string;
@@ -35,11 +37,13 @@ interface SendBody {
 
 interface ImportContactsBody {
   action: "import_contacts";
+  companyId: string;
   contents: string;
 }
 
 interface ImportRecordsBody {
   action: "import_records";
+  companyId: string;
   records: ParsedRecord[];
   pdfTotal: number | null;
   fileName: string;
@@ -49,11 +53,13 @@ interface ImportRecordsBody {
 
 interface SavePartialBalancesBody {
   action: "save_partial_balances";
+  companyId: string;
   adjustments: PartialBalanceAdjustment[];
 }
 
 interface ClearFinancialDataBody {
   action: "clear_financial_data";
+  companyId: string;
 }
 
 type PostBody =
@@ -84,6 +90,7 @@ interface ContactRow {
 }
 
 interface ContactImportRow {
+  company_id: string;
   match_key: string;
   counterparty_name: string;
   email: string;
@@ -258,6 +265,7 @@ function isImportRecordsBody(value: unknown): value is ImportRecordsBody {
   return (
     isObject(value) &&
     value["action"] === "import_records" &&
+    isCompanyId(value["companyId"]) &&
     Array.isArray(value["records"]) &&
     value["records"].length > 0 &&
     value["records"].every(isParsedRecord) &&
@@ -277,6 +285,7 @@ function isSavePartialBalancesBody(value: unknown): value is SavePartialBalances
   return (
     isObject(value) &&
     value["action"] === "save_partial_balances" &&
+    isCompanyId(value["companyId"]) &&
     Array.isArray(value["adjustments"]) &&
     value["adjustments"].length > 0 &&
     value["adjustments"].length <= 1_000 &&
@@ -291,7 +300,10 @@ function isSavePartialBalancesBody(value: unknown): value is SavePartialBalances
   );
 }
 
-async function getFinanceData(action: "movements" | "partial_balances"): Promise<Response> {
+async function getFinanceData(
+  action: "movements" | "partial_balances",
+  companyId: string,
+): Promise<Response> {
   if (!hasAdminDatabaseConfig()) {
     return jsonResponse(
       { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
@@ -302,8 +314,8 @@ async function getFinanceData(action: "movements" | "partial_balances"): Promise
     const data = await import("@/lib/data");
     const result =
       action === "movements"
-        ? await data.fetchAllMovementsFromDatabase(supabaseAdmin)
-        : await data.fetchPendingPartialBalancesFromDatabase(supabaseAdmin);
+        ? await data.fetchAllMovementsFromDatabase(companyId, supabaseAdmin)
+        : await data.fetchPendingPartialBalancesFromDatabase(companyId, supabaseAdmin);
     return jsonResponse(result);
   } catch (error) {
     console.error(`[billing] falha ao carregar ${action}`, error);
@@ -603,7 +615,7 @@ export async function handleZohoOAuthCallback(request: Request): Promise<Respons
   }
 }
 
-async function importContacts(source: unknown): Promise<Response> {
+async function importContacts(source: unknown, companyId: string): Promise<Response> {
   if (!hasAdminDatabaseConfig()) {
     return jsonResponse(
       { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
@@ -629,6 +641,7 @@ async function importContacts(source: unknown): Promise<Response> {
       continue;
     }
     const contact = {
+      company_id: companyId,
       match_key: matchKey,
       counterparty_name: name,
       email: email.join("; "),
@@ -653,7 +666,7 @@ async function importContacts(source: unknown): Promise<Response> {
 
   const { error } = await supabaseAdmin
     .from("receivable_contacts")
-    .upsert(contacts, { onConflict: "match_key" });
+    .upsert(contacts, { onConflict: "company_id,match_key" });
   if (error) {
     console.error("[billing] falha ao importar contatos", error);
     return jsonResponse({ error: "Não foi possível salvar os contatos." }, 500);
@@ -678,6 +691,7 @@ function documentMatchKey(value: string): string {
 }
 
 async function findPreviousRecipients(
+  companyId: string,
   movement: Pick<MovementRow, "counterparty" | "counterparty_document" | "document">,
 ): Promise<string[]> {
   const recipients = new Set<string>();
@@ -690,6 +704,7 @@ async function findPreviousRecipients(
     const { data, error } = await supabaseAdmin
       .from("receivable_email_events")
       .select("id,action_type,recipient_email,title_documents,title_details,sent_at")
+      .eq("company_id", companyId)
       .in("action_type", ["cobranca_vencido", "aviso_vencimento"])
       .order("sent_at", { ascending: false })
       .range(offset, offset + pageSize - 1);
@@ -728,7 +743,7 @@ async function findPreviousRecipients(
   return [...recipients];
 }
 
-async function getBillingRecipient(request: Request): Promise<Response> {
+async function getBillingRecipient(request: Request, companyId: string): Promise<Response> {
   if (!authenticatedUsername(request)) {
     return jsonResponse(
       { error: "Entre na área de cobrança para consultar os destinatários." },
@@ -749,6 +764,7 @@ async function getBillingRecipient(request: Request): Promise<Response> {
   const { data: movement, error: movementError } = await supabaseAdmin
     .from("financial_movements")
     .select("id,type,document,counterparty,counterparty_document")
+    .eq("company_id", companyId)
     .eq("id", movementId)
     .maybeSingle();
   if (movementError) {
@@ -767,9 +783,10 @@ async function getBillingRecipient(request: Request): Promise<Response> {
       supabaseAdmin
         .from("receivable_contacts")
         .select("email,cc")
+        .eq("company_id", companyId)
         .eq("match_key", matchKey)
         .maybeSingle(),
-      findPreviousRecipients(movement),
+      findPreviousRecipients(companyId, movement),
     ]);
     if (contactResult.error) {
       console.error("[billing] falha ao consultar contato salvo", contactResult.error);
@@ -827,6 +844,7 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
     .select(
       "id,type,document,counterparty,counterparty_document,due_date,open_amount,open_amount_known,status,sync_state",
     )
+    .eq("company_id", body.companyId)
     .eq("id", body.movementId)
     .maybeSingle();
   if (movementError) {
@@ -887,12 +905,13 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
   const matchKey = normalizeName(row.counterparty);
   const { error: saveContactError } = await supabaseAdmin.from("receivable_contacts").upsert(
     {
+      company_id: body.companyId,
       match_key: matchKey,
       counterparty_name: row.counterparty,
       email: recipients.join("; "),
       cc: cc.join("; "),
     },
-    { onConflict: "match_key" },
+    { onConflict: "company_id,match_key" },
   );
   if (saveContactError) {
     console.error("[billing] falha ao salvar o destinatário confirmado", saveContactError);
@@ -918,10 +937,11 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
     );
   }
 
-  const idempotencyKey = `${row.id}:${mail.actionType}:${periodKey}`;
+  const idempotencyKey = `${body.companyId}:${row.id}:${mail.actionType}:${periodKey}`;
   const { data: requestRow, error: reserveError } = await supabaseAdmin
     .from("receivable_email_requests")
     .insert({
+      company_id: body.companyId,
       idempotency_key: idempotencyKey,
       movement_id: row.id,
       action_type: mail.actionType,
@@ -975,6 +995,7 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
         status: "needs_review",
         error_code: "zoho_api_network_error",
       })
+      .eq("company_id", body.companyId)
       .eq("id", requestRow.id);
     if (updateError)
       console.error("[billing] falha ao registrar resultado incerto do Zoho Mail", updateError);
@@ -999,6 +1020,7 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
         status: definiteFailure ? "failed" : "needs_review",
         error_code: `zoho_invalid_api_response_${zohoResponse.status}`,
       })
+      .eq("company_id", body.companyId)
       .eq("id", requestRow.id);
     if (updateError)
       console.error("[billing] falha ao registrar resposta inválida do Zoho", updateError);
@@ -1022,6 +1044,7 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
         status: definiteFailure ? "failed" : "needs_review",
         error_code: `zoho_api_${apiCode ?? zohoResponse.status}`,
       })
+      .eq("company_id", body.companyId)
       .eq("id", requestRow.id);
     if (updateError)
       console.error("[billing] falha ao registrar rejeição da API Zoho", updateError);
@@ -1037,6 +1060,7 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
 
   const sentAt = new Date().toISOString();
   const { error: eventError } = await supabaseAdmin.from("receivable_email_events").insert({
+    company_id: body.companyId,
     event_key: idempotencyKey,
     sent_at: sentAt,
     action_type: mail.actionType,
@@ -1080,6 +1104,7 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
     await supabaseAdmin
       .from("receivable_email_requests")
       .update({ status: "needs_review", error_code: "history_write_failed", sent_at: sentAt })
+      .eq("company_id", body.companyId)
       .eq("id", requestRow.id);
     return jsonResponse(
       {
@@ -1093,6 +1118,7 @@ async function sendBillingEmail(body: SendBody, request: Request): Promise<Respo
   const { error: updateError } = await supabaseAdmin
     .from("receivable_email_requests")
     .update({ status: "sent", sent_at: sentAt })
+    .eq("company_id", body.companyId)
     .eq("id", requestRow.id);
   if (updateError) {
     console.error("[billing] e-mail enviado, mas falhou ao atualizar a solicitação", updateError);
@@ -1139,6 +1165,7 @@ interface BillingHistoryMovement {
 }
 
 async function findBillingHistoryMovements(
+  companyId: string,
   field: "document" | "counterparty_document",
   values: string[],
 ): Promise<BillingHistoryMovement[]> {
@@ -1148,6 +1175,7 @@ async function findBillingHistoryMovements(
       let query = supabaseAdmin
         .from("financial_movements")
         .select("id,document,counterparty,counterparty_document,due_date,original_amount")
+        .eq("company_id", companyId)
         .eq("type", "RECEITA")
         .order("id", { ascending: true })
         .range(offset, offset + BILLING_HISTORY_MOVEMENT_PAGE_SIZE - 1);
@@ -1167,7 +1195,7 @@ async function findBillingHistoryMovements(
   return [...matches.values()];
 }
 
-async function getBillingEvents(request: Request): Promise<Response> {
+async function getBillingEvents(request: Request, companyId: string): Promise<Response> {
   if (!authenticatedUsername(request)) {
     return jsonResponse({ error: "Entre na área de cobrança para consultar o histórico." }, 401);
   }
@@ -1204,6 +1232,7 @@ async function getBillingEvents(request: Request): Promise<Response> {
     let query = supabaseAdmin
       .from("receivable_email_events")
       .select("*")
+      .eq("company_id", companyId)
       .order("sent_at", { ascending: false })
       .range(offset, offset + BILLING_EVENTS_PAGE_SIZE - 1);
     if (fromTimestamp) query = query.gte("sent_at", fromTimestamp);
@@ -1250,8 +1279,8 @@ async function getBillingEvents(request: Request): Promise<Response> {
 
   try {
     const [documentMatches, counterpartyMatches] = await Promise.all([
-      findBillingHistoryMovements("document", [...documents]),
-      findBillingHistoryMovements("counterparty_document", [...counterpartyDocuments]),
+      findBillingHistoryMovements(companyId, "document", [...documents]),
+      findBillingHistoryMovements(companyId, "counterparty_document", [...counterpartyDocuments]),
     ]);
     const movements = new Map<string, BillingHistoryMovement>();
     for (const row of [...documentMatches, ...counterpartyMatches]) movements.set(row.id, row);
@@ -1267,15 +1296,26 @@ async function getBillingEvents(request: Request): Promise<Response> {
 
 export async function handleBillingRequest(request: Request): Promise<Response> {
   if (request.method === "GET") {
-    const action = new URL(request.url).searchParams.get("action");
+    const params = new URL(request.url).searchParams;
+    const action = params.get("action");
+    const companyId = params.get("companyId");
     if (action === "zoho_connect") return startZohoAuthorization(request);
-    if (action === "events") return getBillingEvents(request);
-    if (action === "recipient") return getBillingRecipient(request);
+    if (action === "events" || action === "recipient") {
+      if (!isCompanyId(companyId)) {
+        return jsonResponse({ error: "Empresa inválida ou não informada." }, 400);
+      }
+      return action === "events"
+        ? getBillingEvents(request, companyId)
+        : getBillingRecipient(request, companyId);
+    }
     if (action === "movements" || action === "partial_balances") {
       if (!authenticatedUsername(request)) {
         return jsonResponse({ error: "Entre na área de cobrança antes de continuar." }, 401);
       }
-      return getFinanceData(action);
+      if (!isCompanyId(companyId)) {
+        return jsonResponse({ error: "Empresa inválida ou não informada." }, 400);
+      }
+      return getFinanceData(action, companyId);
     }
     return jsonResponse({
       authenticated: !!authenticatedUsername(request),
@@ -1402,7 +1442,11 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
     }
     try {
       const { savePartialBalanceAdjustmentsToDatabase } = await import("@/lib/data");
-      await savePartialBalanceAdjustmentsToDatabase(body.adjustments, supabaseAdmin);
+      await savePartialBalanceAdjustmentsToDatabase(
+        body.companyId,
+        body.adjustments,
+        supabaseAdmin,
+      );
       return jsonResponse({ saved: true });
     } catch (error) {
       console.error("[billing] falha ao salvar saldos parciais", error);
@@ -1435,6 +1479,7 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
         body.found,
         body.rejected,
         supabaseAdmin,
+        body.companyId,
       );
       return jsonResponse(summary);
     } catch (error) {
@@ -1452,6 +1497,9 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
   }
 
   if (body.action === "import_contacts") {
+    if (!isCompanyId(body.companyId)) {
+      return jsonResponse({ error: "Empresa inválida ou não informada." }, 400);
+    }
     if (
       typeof body.contents !== "string" ||
       Buffer.byteLength(body.contents, "utf8") > MAX_CONTACTS_BYTES
@@ -1466,18 +1514,28 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
         return jsonResponse({ error: "O arquivo selecionado não contém JSON válido." }, 400);
       throw error;
     }
-    return importContacts(source);
+    return importContacts(source, body.companyId);
   }
 
-  if (body.action === "send") return sendBillingEmail(body, request);
+  if (body.action === "send") {
+    if (!isCompanyId(body.companyId)) {
+      return jsonResponse({ error: "Empresa inválida ou não informada." }, 400);
+    }
+    return sendBillingEmail(body, request);
+  }
   if (body.action === "clear_financial_data") {
+    if (!isCompanyId(body.companyId)) {
+      return jsonResponse({ error: "Empresa inválida ou não informada." }, 400);
+    }
     if (!hasAdminDatabaseConfig()) {
       return jsonResponse(
         { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
         503,
       );
     }
-    const { error } = await supabaseAdmin.rpc("clear_financial_data");
+    const { error } = await supabaseAdmin.rpc("clear_financial_data", {
+      p_company_id: body.companyId,
+    });
     if (error) {
       console.error("[billing] falha ao limpar os dados financeiros", error);
       if (error.code === "P0001") {

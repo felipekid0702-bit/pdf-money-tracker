@@ -8,7 +8,7 @@ export const Route = createFileRoute("/contas-a-pagar")({
       {
         name: "description",
         content:
-          "Tabela completa das despesas da FP Solução em Altura com valores pagos, saldo em aberto e status.",
+          "Tabela completa das despesas da empresa selecionada com valores pagos, saldo em aberto e status.",
       },
       { property: "og:title", content: "Contas a Pagar | FP Financeiro" },
       {

@@ -35,6 +35,7 @@ import {
 } from "@/lib/finance";
 import { cn } from "@/lib/utils";
 import { useBillingSession } from "@/lib/billing-session";
+import { useCompany } from "@/lib/company-context";
 import { ArrowUpDown } from "lucide-react";
 
 type SortKey =
@@ -457,6 +458,7 @@ function BillingSendButton({
   authenticated: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { company } = useCompany();
   const [busy, setBusy] = useState(false);
   const [loadingRecipient, setLoadingRecipient] = useState(false);
   const [message, setMessage] = useState("");
@@ -475,7 +477,11 @@ function BillingSendButton({
     setCcEmail("");
     setPreviousRecipients([]);
     try {
-      const params = new URLSearchParams({ action: "recipient", movementId });
+      const params = new URLSearchParams({
+        action: "recipient",
+        movementId,
+        companyId: company.id,
+      });
       const response = await fetch(`/api/billing?${params.toString()}`);
       const result = (await response.json()) as {
         error?: string;
@@ -505,14 +511,22 @@ function BillingSendButton({
       const response = await fetch("/api/billing", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "send", movementId, recipientEmail, ccEmail }),
+        body: JSON.stringify({
+          action: "send",
+          companyId: company.id,
+          movementId,
+          recipientEmail,
+          ccEmail,
+        }),
       });
       const result = (await response.json()) as { error?: string; sent?: boolean };
       if (!response.ok) throw new Error(result.error ?? "Não foi possível enviar o e-mail.");
       if (!result.sent) throw new Error("O servidor não confirmou o envio.");
       setMessage(`E-mail enviado para ${recipientEmail}.`);
       setDialogOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["receivable-email-events"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["receivable-email-events", company.id],
+      });
     } catch (error) {
       setDialogError(error instanceof Error ? error.message : "Não foi possível enviar o e-mail.");
     } finally {

@@ -3,20 +3,25 @@ import { useMemo } from "react";
 import { fetchAllMovements, fetchPendingPartialBalances } from "@/lib/data";
 import type { PartialBalanceMovement } from "@/lib/data";
 import type { Movement } from "@/lib/finance";
+import { useCompany } from "@/lib/company-context";
 
 /** Todos os títulos gravados, inclusive os em revisão (não constam mais no Bling). */
 export function useAllMovements() {
+  const { company, ready } = useCompany();
   return useQuery<Movement[]>({
-    queryKey: ["movements"],
-    queryFn: fetchAllMovements,
+    queryKey: ["movements", company.id],
+    queryFn: () => fetchAllMovements(company.id),
+    enabled: ready,
     staleTime: 30_000,
   });
 }
 
 export function usePendingPartialBalances() {
+  const { company, ready } = useCompany();
   return useQuery<PartialBalanceMovement[]>({
-    queryKey: ["partial-balances"],
-    queryFn: fetchPendingPartialBalances,
+    queryKey: ["partial-balances", company.id],
+    queryFn: () => fetchPendingPartialBalances(company.id),
+    enabled: ready,
     staleTime: 30_000,
   });
 }

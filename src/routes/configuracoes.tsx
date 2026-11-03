@@ -9,6 +9,7 @@ import { clearAllData } from "@/lib/data";
 import { useMovements } from "@/hooks/useMovements";
 import { useBillingSession } from "@/lib/billing-session";
 import { useImportQueue } from "@/lib/import-context";
+import { useCompany } from "@/lib/company-context";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -38,6 +39,7 @@ function Configuracoes() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
+  const { company } = useCompany();
   const { data } = useMovements();
   const { jobs, running: importing } = useImportQueue();
   const { authenticated, zohoConnected, zohoConfigured } = useBillingSession();
@@ -78,10 +80,11 @@ function Configuracoes() {
     setBusy(true);
     setError(null);
     try {
-      await clearAllData();
+      await clearAllData(company.id);
       setDone(true);
       setStep(0);
-      await qc.invalidateQueries({ queryKey: ["movements"] });
+      await qc.invalidateQueries({ queryKey: ["movements", company.id] });
+      await qc.invalidateQueries({ queryKey: ["partial-balances", company.id] });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao apagar os dados.");
     } finally {
@@ -98,7 +101,11 @@ function Configuracoes() {
       const response = await fetch("/api/billing", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "import_contacts", contents: await file.text() }),
+        body: JSON.stringify({
+          action: "import_contacts",
+          companyId: company.id,
+          contents: await file.text(),
+        }),
       });
       const result = (await response.json()) as {
         error?: string;
@@ -119,8 +126,58 @@ function Configuracoes() {
   }
 
   return (
-    <AppLayout title="Configurações" subtitle="FP SOLUÇÃO EM ALTURA LTDA — CNPJ 58.348.102/0001-82">
+    <AppLayout title="Configurações" subtitle={`${company.legalName} — CNPJ ${company.cnpj}`}>
       <div className="space-y-5">
+        <SectionCard title="Dados cadastrais da empresa" description={company.legalName}>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <RegistrationField label="CNPJ" value={company.cnpj} />
+            <RegistrationField label="Data de abertura" value={company.registration.openingDate} />
+            <RegistrationField label="Porte" value={company.registration.size} />
+            <RegistrationField label="Natureza jurídica" value={company.registration.legalNature} />
+            <RegistrationField label="Situação cadastral" value={company.registration.status} />
+            <RegistrationField label="Data da situação" value={company.registration.statusDate} />
+            <RegistrationField label="E-mail cadastral" value={company.registration.email} />
+            <RegistrationField label="Telefone cadastral" value={company.registration.phone} />
+            <RegistrationField
+              label="Endereço"
+              value={[
+                company.registration.address.street,
+                company.registration.address.number,
+                company.registration.address.complement,
+                company.registration.address.district,
+                company.registration.address.city,
+                company.registration.address.state,
+                company.registration.address.postalCode,
+              ]
+                .filter(Boolean)
+                .join(", ")}
+            />
+            <RegistrationField
+              label="Atividade econômica principal"
+              value={company.registration.primaryActivity}
+            />
+            {company.registration.issuedAt && (
+              <RegistrationField
+                label="Emissão do comprovante"
+                value={company.registration.issuedAt}
+              />
+            )}
+          </dl>
+          {company.registration.secondaryActivities.length > 0 && (
+            <details className="mt-4 rounded-md border border-border p-3">
+              <summary className="cursor-pointer text-sm font-medium">
+                Atividades econômicas secundárias ({company.registration.secondaryActivities.length}
+                )
+              </summary>
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                {company.registration.secondaryActivities.map((activity) => (
+                  <li key={activity}>{activity}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </SectionCard>
+
         <SectionCard
           title="Envio de cobranças"
           description="O servidor envia diretamente pela API do Zoho Mail; não depende do Outlook aberto."
@@ -156,8 +213,8 @@ function Configuracoes() {
               )}
             </div>
             <p className="text-sm text-muted-foreground">
-              Importe o arquivo JSON de contatos da automação. Os endereços ficam em uma tabela
-              privada e só são consultados pelo servidor para o envio.
+              Importe o arquivo JSON de contatos da automação para {company.name}. Os endereços
+              ficam em uma tabela privada e só são consultados pelo servidor para o envio.
             </p>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium hover:bg-muted has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
               <Upload className="size-4" />
@@ -200,16 +257,17 @@ function Configuracoes() {
         </div>
 
         <SectionCard
-          title="Limpar dados financeiros e fiscais"
+          title={`Limpar dados de ${company.name}`}
           description={`${data?.length ?? 0} movimentos; notas, relatórios, conciliações e importações também serão apagados`}
         >
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Esta ação apaga movimentos financeiros, notas fiscais, relatórios importados,
-              conciliações, ajustes de cadastros e histórico de importações. Os contatos e o
-              histórico de ações de cobrança (boletos enviados, avisos de vencimento e cobranças de
-              títulos vencidos) são preservados. Solicitações de cobrança pendentes são canceladas;
-              se houver um envio em andamento, a limpeza aguardará uma nova tentativa.
+              Esta ação apaga apenas os dados de {company.name}: movimentos financeiros, notas
+              fiscais, relatórios importados, conciliações, ajustes de cadastros e histórico de
+              importações. Os contatos e o histórico de ações de cobrança (boletos enviados, avisos
+              de vencimento e cobranças de títulos vencidos) são preservados. Solicitações de
+              cobrança pendentes são canceladas; se houver um envio em andamento, a limpeza
+              aguardará uma nova tentativa.
             </p>
             {!authenticated && (
               <p role="status" className="text-sm text-warning">
@@ -231,15 +289,15 @@ function Configuracoes() {
                 }}
                 className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <Trash2 className="size-4" /> Apagar todos os dados
+                <Trash2 className="size-4" /> Apagar dados de {company.name}
               </button>
             )}
 
             {step === 1 && (
               <div className="rounded-md border border-warning/50 bg-warning/10 p-4 text-sm">
                 <p className="font-medium">
-                  Confirmação 1 de 2: apagar movimentos, documentos fiscais, relatórios,
-                  conciliações e histórico de importações?
+                  Confirmação 1 de 2: apagar os dados de {company.name}, incluindo movimentos,
+                  documentos fiscais, relatórios, conciliações e histórico de importações?
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
@@ -262,8 +320,9 @@ function Configuracoes() {
               <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm">
                 <p className="flex items-start gap-2 font-medium text-destructive">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                  Confirmação 2 de 2: a operação é irreversível. Contatos e histórico das ações de
-                  cobrança serão preservados; solicitações pendentes serão canceladas.
+                  Confirmação 2 de 2: a operação é irreversível para {company.name}. Contatos e
+                  histórico das ações de cobrança serão preservados; solicitações pendentes serão
+                  canceladas.
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
@@ -272,7 +331,7 @@ function Configuracoes() {
                     className="inline-flex items-center gap-2 rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground disabled:opacity-60"
                   >
                     {busy && <Loader2 className="size-3 animate-spin" />}
-                    Apagar definitivamente
+                    Apagar dados de {company.name}
                   </button>
                   <button
                     onClick={() => setStep(0)}
@@ -287,8 +346,8 @@ function Configuracoes() {
             {done && (
               <div className="flex items-center gap-2 text-sm text-success">
                 <CheckCircle2 className="size-4" />
-                Dados financeiros, fiscais, relatórios e conciliações apagados. Contatos e histórico
-                de cobranças preservados.
+                Dados financeiros, fiscais, relatórios e conciliações de {company.name} apagados.
+                Contatos e histórico de cobranças dessa empresa preservados.
               </div>
             )}
 
@@ -302,5 +361,16 @@ function Configuracoes() {
         </SectionCard>
       </div>
     </AppLayout>
+  );
+}
+
+function RegistrationField({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/40 p-3">
+      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-1 break-words font-medium">
+        {value || "Não informado no cadastro disponível"}
+      </dd>
+    </div>
   );
 }

@@ -8,7 +8,7 @@ export const Route = createFileRoute("/contas-a-receber")({
       {
         name: "description",
         content:
-          "Tabela completa das receitas da FP Solução em Altura com valores recebidos, saldo em aberto e status.",
+          "Tabela completa das receitas da empresa selecionada com valores recebidos, saldo em aberto e status.",
       },
       { property: "og:title", content: "Contas a Receber | FP Financeiro" },
       {
