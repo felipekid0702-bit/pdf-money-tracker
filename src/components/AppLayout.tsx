@@ -8,6 +8,7 @@ import {
   Settings,
   Menu,
   CalendarDays,
+  Presentation,
   Send,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -25,6 +26,7 @@ const NAV = [
   { to: "/contas-a-pagar", label: "Contas a Pagar", icon: ArrowUpCircle },
   { to: "/calendario", label: "Calendário", icon: CalendarDays },
   { to: "/analises", label: "Análises", icon: BarChart3 },
+  { to: "/apresentacoes", label: "Apresentações", icon: Presentation },
   { to: "/importacao", label: "Importação", icon: Upload },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
