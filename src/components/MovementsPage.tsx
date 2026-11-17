@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AppLayout } from "@/components/AppLayout";
+import { MovementEditDialog } from "@/components/MovementEditDialog";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState } from "@/components/StatCard";
 import { useAllMovements } from "@/hooks/useMovements";
@@ -69,6 +70,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
   const [asc, setAsc] = useState(true);
 
   const [showReview, setShowReview] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const typed = useMemo(() => (allData ?? []).filter((m) => m.type === type), [allData, type]);
   const reviewRows = useMemo(() => typed.filter((m) => m.sync_state === "review"), [typed]);
   const unknownBalanceRows = useMemo(
@@ -159,6 +161,11 @@ export function MovementsPage({ type }: { type: MovementType }) {
   }, [base, filter, state, party, minValue, maxValue, search, sortKey, asc, today]);
 
   const k = sideKpis(rows, today);
+  // Sempre busca o título no cache atual: edições refletem na hora.
+  const editingMovement = useMemo(
+    () => (editingId ? (typed.find((m) => m.id === editingId) ?? null) : null),
+    [editingId, typed],
+  );
 
   const sortBtn = (key: SortKey, label: string, right = false) => (
     <button
@@ -317,6 +324,7 @@ export function MovementsPage({ type }: { type: MovementType }) {
                     boletoTooltip={boletoTooltipByMovementId.get(m.id)}
                     showBillingAction={isReceita}
                     authenticated={authenticated}
+                    onOpen={() => setEditingId(m.id)}
                   />
                 ))}
               </tbody>
@@ -334,6 +342,11 @@ export function MovementsPage({ type }: { type: MovementType }) {
               </tfoot>
             </table>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Clique em um título para editar todas as informações, informar a data de{" "}
+            {isReceita ? "recebimento" : "pagamento"} ou excluí-lo.
+          </p>
+          <MovementEditDialog movement={editingMovement} onClose={() => setEditingId(null)} />
           {isReceita && receivableEventsLoading && (
             <p className="text-xs text-muted-foreground">
               Verificando registros de boletos enviados…
@@ -357,7 +370,9 @@ function Row({
   boletoTooltip,
   showBillingAction,
   authenticated,
+  onOpen,
 }: {
+  onOpen: () => void;
   m: Movement;
   today: string;
   boletoTooltip?: string | undefined;
@@ -366,7 +381,15 @@ function Row({
 }) {
   const billingAction = showBillingAction ? billingActionFor(m.due_date, today) : null;
   return (
-    <tr className="border-b border-border/60 last:border-0 hover:bg-muted/40">
+    <tr
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && e.target === e.currentTarget) onOpen();
+      }}
+      tabIndex={0}
+      title="Clique para editar"
+      className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/40 focus:bg-muted/40 focus:outline-none"
+    >
       <td
         className="num px-3 py-2 whitespace-nowrap"
         title={boletoTooltip}
@@ -409,7 +432,7 @@ function Row({
         />
       </td>
       {showBillingAction && (
-        <td className="px-3 py-2">
+        <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
           {m.sync_state !== "current" ? (
             <span className="text-xs text-warning">
               {m.sync_state === "review"

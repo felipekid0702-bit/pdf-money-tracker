@@ -69,6 +69,7 @@ type PostBody =
   | ImportRecordsBody
   | SavePartialBalancesBody
   | ClearFinancialDataBody
+  | { action: "update_movement" | "delete_movement" | "restore_movement" }
   | { action: "logout" };
 
 interface MovementRow {
@@ -1308,6 +1309,27 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
         ? getBillingEvents(request, companyId)
         : getBillingRecipient(request, companyId);
     }
+    if (action === "changes") {
+      if (!authenticatedUsername(request)) {
+        return jsonResponse({ error: "Entre na área de cobrança antes de continuar." }, 401);
+      }
+      if (!isCompanyId(companyId)) {
+        return jsonResponse({ error: "Empresa inválida ou não informada." }, 400);
+      }
+      if (!hasAdminDatabaseConfig()) {
+        return jsonResponse(
+          { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
+          503,
+        );
+      }
+      try {
+        const { listChanges } = await import("@/lib/movement-edits-server");
+        return jsonResponse(await listChanges(supabaseAdmin, companyId));
+      } catch (error) {
+        console.error("[billing] falha ao carregar o histórico de alterações", error);
+        return jsonResponse({ error: "Não foi possível carregar o histórico de alterações." }, 500);
+      }
+    }
     if (action === "movements" || action === "partial_balances") {
       if (!authenticatedUsername(request)) {
         return jsonResponse({ error: "Entre na área de cobrança antes de continuar." }, 401);
@@ -1460,6 +1482,79 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
     }
   }
 
+  if (
+    body.action === "update_movement" ||
+    body.action === "delete_movement" ||
+    body.action === "restore_movement"
+  ) {
+    const raw = parsedBody as Record<string, unknown>;
+    if (!isCompanyId(raw["companyId"])) {
+      return jsonResponse({ error: "Empresa inválida ou não informada." }, 400);
+    }
+    if (!hasAdminDatabaseConfig()) {
+      return jsonResponse(
+        { error: "O acesso privado ao Supabase não foi configurado na Vercel." },
+        503,
+      );
+    }
+    const actor = authenticatedUsername(request) ?? "desconhecido";
+    const id = raw[body.action === "restore_movement" ? "changeId" : "movementId"];
+    if (!validMovementId(id)) {
+      return jsonResponse({ error: "Identificador inválido." }, 400);
+    }
+    try {
+      const edits = await import("@/lib/movement-edits-server");
+      if (body.action === "update_movement") {
+        const input = raw["input"];
+        if (!isObject(input)) return jsonResponse({ error: "Dados do título inválidos." }, 400);
+        const text = (v: unknown) => (typeof v === "string" ? v : v === null ? null : undefined);
+        const num = (v: unknown) => (typeof v === "number" ? v : Number.NaN);
+        const parsed = {
+          document: text(input["document"]),
+          counterparty: text(input["counterparty"]),
+          counterparty_document: text(input["counterparty_document"]),
+          description: text(input["description"]),
+          issue_date: text(input["issue_date"]),
+          due_date: text(input["due_date"]),
+          payment_date: text(input["payment_date"]),
+          original_amount: num(input["original_amount"]),
+          paid_amount: num(input["paid_amount"]),
+          situation: input["situation"],
+        };
+        if (
+          Object.values(parsed).some((v) => v === undefined) ||
+          !["EM_ABERTO", "PARCIAL", "LIQUIDADO", "CANCELADO"].includes(String(parsed.situation))
+        ) {
+          return jsonResponse({ error: "Dados do título inválidos." }, 400);
+        }
+        const updated = await edits.updateMovement(
+          supabaseAdmin,
+          raw["companyId"] as string,
+          id,
+          parsed as unknown as import("@/lib/movement-edit").MovementEditInput,
+          actor,
+        );
+        return jsonResponse({ saved: true, movement: updated });
+      }
+      if (body.action === "delete_movement") {
+        await edits.deleteMovement(supabaseAdmin, raw["companyId"] as string, id, actor);
+        return jsonResponse({ deleted: true });
+      }
+      await edits.restoreMovement(supabaseAdmin, raw["companyId"] as string, id, actor);
+      return jsonResponse({ restored: true });
+    } catch (error) {
+      console.error(`[billing] falha em ${body.action}`, error);
+      const status =
+        error !== null && typeof error === "object" && "status" in error
+          ? Number((error as { status: unknown }).status)
+          : 500;
+      return jsonResponse(
+        { error: error instanceof Error ? error.message : "Não foi possível concluir a operação." },
+        Number.isInteger(status) && status >= 400 && status < 600 ? status : 500,
+      );
+    }
+  }
+
   if (body.action === "import_records") {
     if (!isImportRecordsBody(parsedBody)) {
       return jsonResponse({ error: "Os dados do relatório são inválidos." }, 400);
@@ -1543,6 +1638,9 @@ export async function handleBillingRequest(request: Request): Promise<Response> 
       }
       return jsonResponse({ error: "Não foi possível apagar os dados financeiros." }, 500);
     }
+    await supabaseAdmin.rpc("clear_manual_edit_state" as never, {
+      p_company_id: body.companyId,
+    } as never);
     return jsonResponse({ cleared: true });
   }
   return jsonResponse({ error: "Ação de cobrança desconhecida." }, 400);

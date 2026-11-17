@@ -2,6 +2,7 @@ import { formatBRL, formatPercent } from "@/lib/finance";
 import type { AgingBucket, Alert, PartyRow, ProjectionRow, SeriesPoint } from "@/lib/analytics";
 import type { PeriodRange } from "@/lib/period";
 import type { PeriodKpis, OpenPosition } from "@/lib/analytics";
+import type { DataIssue, PriorityTitle } from "@/lib/deck-insights";
 
 export interface PresentationData {
   companyName: string;
@@ -20,6 +21,11 @@ export interface PresentationData {
   overdueReceivables: AgingBucket[];
   overduePayables: AgingBucket[];
   alerts: Alert[];
+  overdueReceivableTitles: PriorityTitle[];
+  overduePayableTitles: PriorityTitle[];
+  upcomingReceivableTitles: PriorityTitle[];
+  upcomingPayableTitles: PriorityTitle[];
+  dataIssues: DataIssue[];
 }
 
 type PresentationKind = "email" | "board";
@@ -102,7 +108,7 @@ function horizontalBars(
 function trendChart(points: SeriesPoint[]): string {
   if (!points.length)
     return `<p class="empty">Não há série temporal suficiente para o gráfico.</p>`;
-  const visible = points.slice(-6);
+  const visible = points.slice(-9);
   const width = 760;
   const height = 290;
   const pad = { left: 62, right: 18, top: 16, bottom: 42 };
@@ -193,6 +199,19 @@ function projectionTable(rows: ProjectionRow[]): string {
     .join("")}</tbody></table>`;
 }
 
+const TOTAL_SLIDES = 8;
+
+function priorityTable(rows: PriorityTitle[], mode: "overdue" | "upcoming", side: string): string {
+  if (!rows.length) return `<p class="empty">Nenhum título ${mode === "overdue" ? "vencido" : "a vencer nos próximos 15 dias"} em ${esc(side)}.</p>`;
+  const total = rows.reduce((sum, row) => sum + row.amount, 0);
+  return `<table><thead><tr><th>Documento</th><th>${esc(side)}</th><th>Vencimento</th><th>${mode === "overdue" ? "Atraso" : "Vence em"}</th><th>Saldo</th></tr></thead><tbody>${rows
+    .map(
+      (row) =>
+        `<tr><td>${esc(row.document)}</td><td>${esc(row.party)}</td><td>${esc(dateLabel(row.dueDate))}</td><td>${mode === "overdue" ? `${row.days} d` : `${Math.abs(row.days)} d`}</td><td>${esc(formatCurrency(row.amount))}</td></tr>`,
+    )
+    .join("")}</tbody><tfoot><tr><td colspan="4"><strong>Total listado</strong></td><td><strong>${esc(formatCurrency(total))}</strong></td></tr></tfoot></table>`;
+}
+
 function slide(
   number: number,
   title: string,
@@ -201,7 +220,7 @@ function slide(
   data: PresentationData,
 ): string {
   return `<section class="page slide">
-    <div class="slide-head">${companyBrand(data, "BOARD DECK")}<div class="slide-number">${number.toString().padStart(2, "0")} / 07</div></div>
+    <div class="slide-head">${companyBrand(data, "BOARD DECK")}<div class="slide-number">${number.toString().padStart(2, "0")} / ${String(TOTAL_SLIDES).padStart(2, "0")}</div></div>
     <h1>${esc(title)}</h1><p class="takeaway">${esc(takeaway)}</p>
     <div class="slide-content">${content}</div>
     <footer><span>${esc(data.legalName)} · CNPJ ${esc(data.cnpj)}</span><span>${esc(periodText(data))}</span></footer>
@@ -290,11 +309,37 @@ function boardDocument(data: PresentationData): string {
           .join("")}</ul>`
       : `<p class="empty">Nenhum alerta automático identificado.</p>`
   }<p class="small-note">A inadimplência sobre a carteira a receber é ${esc(formatPercent(overdueShare))}.</p></div></div>`;
-  const actions = `<div class="action-grid">
-      <div><span class="action-number">01</span><h3>Validar orçamento</h3><p>Registrar orçamento por período para habilitar variações Real vs. Budget.</p></div>
-      <div><span class="action-number">02</span><h3>Completar visão de caixa</h3><p>Integrar saldo bancário inicial e movimentos de caixa antes de estimar liquidez ou runway.</p></div>
-      <div><span class="action-number">03</span><h3>Detalhar resultado</h3><p>Classificar custos, CMV e despesas operacionais para apurar margem bruta e EBITDA.</p></div>
-    </div><div class="caveat"><strong>Escopo dos dados:</strong> relatórios financeiros do Bling importados para a empresa e o período selecionados. KPIs operacionais como ARR, churn, CAC, LTV, headcount e pipeline não estão disponíveis nesta base.</div>`;
+  const priorities = `<div class="two-col"><div><h3>Receber · maiores vencidos</h3>${priorityTable(data.overdueReceivableTitles, "overdue", "Cliente")}</div><div><h3>Pagar · maiores vencidos</h3>${priorityTable(data.overduePayableTitles, "overdue", "Fornecedor")}</div></div>
+    <div class="two-col"><div><h3>Receber · vencem em 15 dias</h3>${priorityTable(data.upcomingReceivableTitles, "upcoming", "Cliente")}</div><div><h3>Pagar · vencem em 15 dias</h3>${priorityTable(data.upcomingPayableTitles, "upcoming", "Fornecedor")}</div></div>`;
+  const topOverdueClient = data.overdueReceivableTitles[0];
+  const nextSteps = [
+    topOverdueClient
+      ? `Priorizar a cobrança de ${topOverdueClient.party} (${formatCurrency(topOverdueClient.amount)}, ${topOverdueClient.days} dias de atraso) e dos demais títulos vencidos listados.`
+      : "Manter o acompanhamento diário dos vencimentos.",
+    data.alerts.some((alert) => alert.title.toLowerCase().includes("deficit") || alert.title.toLowerCase().includes("deficitário"))
+      ? "Antecipar recebimentos ou renegociar pagamentos nos dias deficitários indicados nos alertas."
+      : "Sem dias deficitários relevantes na projeção atual.",
+    data.dataIssues.length
+      ? "Corrigir os pontos de qualidade dos dados abaixo; eles distorcem gráficos, projeções e rankings."
+      : "Base sem inconsistências de dados detectadas pelas regras automáticas.",
+  ];
+  const quality = `<div class="action-grid">${nextSteps
+    .map(
+      (text, index) =>
+        `<div><span class="action-number">0${index + 1}</span><h3>${["Cobrança", "Caixa do dia a dia", "Qualidade dos dados"][index]}</h3><p>${esc(text)}</p></div>`,
+    )
+    .join("")}</div>
+    ${
+      data.dataIssues.length
+        ? `<table><thead><tr><th>Ponto de atenção</th><th>Títulos</th><th>Valor</th><th>Impacto</th></tr></thead><tbody>${data.dataIssues
+            .map(
+              (issue) =>
+                `<tr><td>${esc(issue.label)}</td><td>${issue.count}</td><td>${esc(formatCurrency(issue.amount))}</td><td style="text-align:left">${esc(issue.hint)}</td></tr>`,
+            )
+            .join("")}</tbody></table>`
+        : ""
+    }
+    <div class="caveat"><strong>Escopo dos dados:</strong> relatórios do Bling importados e edições manuais registradas no histórico. Orçamento, margem, EBITDA, saldo bancário e runway não existem na base e não são estimados.</div>`;
 
   return [
     slide(
@@ -341,9 +386,16 @@ function boardDocument(data: PresentationData): string {
     ),
     slide(
       7,
-      "Orçamento e dados de caixa são os próximos passos para uma visão CFO",
-      "Limitações atuais e ações para tornar futuras apresentações comparáveis e completas.",
-      actions,
+      "Títulos que exigem ação agora",
+      "Maiores saldos vencidos e vencimentos dos próximos 15 dias, por título.",
+      priorities,
+      data,
+    ),
+    slide(
+      8,
+      "Próximas ações e qualidade dos dados",
+      "Prioridades derivadas dos números desta apresentação.",
+      quality,
       data,
     ),
   ].join("");
@@ -406,6 +458,7 @@ function styles(kind: PresentationKind): string {
     table { width: 100%; border-collapse: collapse; font-size: 9px; }
     th { padding: 7px 5px; background: ${COLORS.pale}; color: ${COLORS.muted}; text-align: left; font-size: 8px; text-transform: uppercase; }
     td { padding: 7px 5px; border-bottom: 1px solid ${COLORS.grid}; }
+    tfoot td { border-top: 2px solid ${COLORS.grid}; border-bottom: 0; }
     td:not(:first-child), th:not(:first-child) { text-align: right; }
     .aging { display: grid; gap: 9px; }
     .aging-row { display: grid; grid-template-columns: 74px 1fr 75px 1fr 75px; gap: 6px; align-items: center; }
@@ -440,7 +493,7 @@ export function renderPresentation(data: PresentationData, kind: PresentationKin
   const title = board ? "Board Deck" : "Resumo executivo";
   const body = board ? boardDocument(data) : emailDocument(data);
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)} · ${esc(data.companyName)}</title><style>${styles(kind)}</style></head><body>
-    <div class="toolbar"><span>Apresentação pronta · ${board ? "7 páginas" : "1 página"} · No diálogo, escolha “Salvar como PDF” para guardar ou anexar ao e-mail.</span><button class="print" onclick="window.print()">Imprimir / Salvar em PDF</button><button onclick="window.close()">Fechar</button></div>
+    <div class="toolbar"><span>Apresentação pronta · ${board ? `${TOTAL_SLIDES} páginas` : "1 página"} · No diálogo, escolha “Salvar como PDF” para guardar ou anexar ao e-mail.</span><button class="print" onclick="window.print()">Imprimir / Salvar em PDF</button><button onclick="window.close()">Fechar</button></div>
     ${body}
     <script>window.addEventListener("load",function(){setTimeout(function(){window.focus();window.print()},350)})</script>
   </body></html>`;

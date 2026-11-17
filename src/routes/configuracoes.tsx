@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Trash2, Upload } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { SectionCard } from "@/components/StatCard";
+import { ChangeHistory } from "@/components/ChangeHistory";
 import { NyansapoMark } from "@/components/NyansapoMark";
 import { clearAllData } from "@/lib/data";
 import { useMovements } from "@/hooks/useMovements";
@@ -242,6 +243,8 @@ function Configuracoes() {
             )}
           </div>
         </SectionCard>
+
+        <ChangeHistory />
 
         <div className="flex min-h-[260px] items-center justify-center py-6">
           <div className="flex items-center gap-5 text-foreground/80">

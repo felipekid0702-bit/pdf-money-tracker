@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import fpLogo from "@/assets/FP Logo - Fundo Branco.png";
 import apoioVerticalLogo from "@/assets/Apoio Vertical Logo.jpeg";
 import { AppLayout } from "@/components/AppLayout";
+import { CollectionReports } from "@/components/CollectionReports";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { EmptyState, SectionCard } from "@/components/StatCard";
 import { useMovements } from "@/hooks/useMovements";
@@ -19,6 +20,7 @@ import {
   rankParties,
   timeSeries,
 } from "@/lib/analytics";
+import { dataIssues, topOverdue, topUpcoming, trendWindow } from "@/lib/deck-insights";
 import { usePeriod } from "@/lib/period";
 import type { PresentationData } from "@/lib/presentation-export";
 
@@ -59,7 +61,20 @@ function Apresentacoes() {
       ),
     [all, today],
   );
-  const monthlyTrend = useMemo(() => timeSeries(all, "month", today).slice(-6), [all, today]);
+  const monthlyTrend = useMemo(
+    () => trendWindow(timeSeries(all, "month", today), today),
+    [all, today],
+  );
+  const insights = useMemo(
+    () => ({
+      overdueReceivableTitles: topOverdue(all, "RECEITA", today),
+      overduePayableTitles: topOverdue(all, "DESPESA", today),
+      upcomingReceivableTitles: topUpcoming(all, "RECEITA", today),
+      upcomingPayableTitles: topUpcoming(all, "DESPESA", today),
+      dataIssues: dataIssues(all, today),
+    }),
+    [all, today],
+  );
   const topClients = useMemo(() => rankParties(rows, "RECEITA", today).slice(0, 5), [rows, today]);
   const topSuppliers = useMemo(
     () => rankParties(rows, "DESPESA", today).slice(0, 5),
@@ -99,6 +114,7 @@ function Apresentacoes() {
         overdueReceivables,
         overduePayables,
         alerts,
+        ...insights,
       };
       printWindow.document.open();
       printWindow.document.write(renderPresentation(payload, kind));
@@ -156,7 +172,7 @@ function Apresentacoes() {
           </SectionCard>
           <SectionCard
             title="Board Deck"
-            description="Apresentação de sete páginas com resumo executivo, desempenho por títulos, concentração, projeção, aging, riscos e próximos passos."
+            description="Apresentação de oito páginas: resumo, fluxo, clientes, fornecedores, projeção, vencidos e alertas, títulos prioritários por documento e qualidade dos dados."
           >
             <div className="flex flex-col gap-4">
               <p className="text-sm text-muted-foreground">
@@ -174,6 +190,9 @@ function Apresentacoes() {
               </button>
             </div>
           </SectionCard>
+          <div className="xl:col-span-2">
+            <CollectionReports />
+          </div>
           <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground xl:col-span-2">
             <div className="flex items-start gap-3">
               <Printer className="mt-0.5 size-4 shrink-0" />

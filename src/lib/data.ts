@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { todayISO, type Movement } from "./finance";
 import type { ParsedRecord } from "./pdf-parser";
+import { loadManualState } from "./movement-edits-server";
 
 export async function fetchAllMovements(companyId: string): Promise<Movement[]> {
   const params = new URLSearchParams({ action: "movements", companyId });
@@ -108,6 +109,10 @@ export interface ImportSummary {
   open: number;
   pdfTotal: number | null;
   divergence: number | null;
+  /** Títulos do relatório ignorados por terem sido excluídos manualmente. */
+  excludedSkipped?: number;
+  /** Títulos cujos campos editados manualmente foram preservados. */
+  manualPreserved?: number;
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -311,11 +316,18 @@ export async function importRecords(
     if (rows.length < pageSize) break;
   }
 
+  const manual = await loadManualState(database, companyId);
+  let excludedSkipped = 0;
+  let manualPreserved = 0;
   const toInsert: ParsedRecord[] = [];
   const toUpdate: Array<Record<string, unknown>> = [];
   const effectiveRecords: ParsedRecord[] = [];
   const matchedExistingIds = new Set<string>();
   for (const record of records) {
+    if (manual.excludedKeys.has(record.unique_key)) {
+      excludedSkipped += 1;
+      continue;
+    }
     let previous = existing.get(record.unique_key);
 
     if (!previous) {
@@ -424,6 +436,17 @@ export async function importRecords(
     if (record.counterparty_document && !previous.counterparty_document)
       patch["counterparty_document"] = record.counterparty_document;
     if (previous.sync_state !== "current") patch["sync_state"] = "current";
+    const locked = manual.locks.get(previous.id);
+    if (locked) {
+      let preserved = false;
+      for (const key of locked) {
+        if (key in patch) {
+          delete patch[key];
+          preserved = true;
+        }
+      }
+      if (preserved) manualPreserved += 1;
+    }
     if (!Object.keys(patch).length) continue;
 
     toUpdate.push({
@@ -551,6 +574,8 @@ export async function importRecords(
     open,
     pdfTotal,
     divergence: pdfTotal === null ? null : Number((pdfTotal - sourceAmountTotal).toFixed(2)),
+    excludedSkipped,
+    manualPreserved,
   };
 }
 
